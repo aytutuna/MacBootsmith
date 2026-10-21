@@ -1,4 +1,5 @@
 from Scripts.datasets.mac_model_data import mac_devices
+from Scripts.datasets import cpu_data
 from Scripts.datasets import kext_data
 from Scripts.datasets import os_data
 from Scripts import gathering_files
@@ -10,6 +11,8 @@ import random
 import platform
 
 os_name = platform.system()
+
+TAHOE_SMBIOS_MODELS = ("iMac20,1", "iMac20,2", "MacPro7,1", "MacBookPro16,1", "MacBookPro16,2", "MacBookPro16,4")
 
 class SMBIOS:
     def __init__(self):
@@ -91,6 +94,51 @@ class SMBIOS:
             kext_maestro.check_kext(kext_data.kext_index_by_name.get(name), macos_version, "Beta" in os_data.get_macos_name_by_darwin(macos_version))
     
     def select_smbios_model(self, hardware_report, macos_version):
+        smbios_model = self.select_default_smbios_model(hardware_report, macos_version)
+        return self.apply_tahoe_override(hardware_report, smbios_model, macos_version)
+
+    def apply_tahoe_override(self, hardware_report, smbios_model, macos_version):
+        if self.utils.parse_darwin_version(macos_version) < self.utils.parse_darwin_version("25.0.0") or smbios_model in TAHOE_SMBIOS_MODELS:
+            return smbios_model
+
+        cpu = hardware_report.get("CPU")
+        platform = "NUC" if "NUC" in hardware_report.get("Motherboard").get("Name") else hardware_report.get("Motherboard").get("Platform")
+        is_amd = "AMD" in cpu.get("Manufacturer", "") or "AMD" in cpu.get("Processor Name", "")
+        gpus = list(hardware_report.get("GPU", {}).items())
+        has_igpu = bool(gpus) and gpus[-1][-1].get("Device Type") == "Integrated GPU"
+        codename = cpu.get("Codename", "")
+        generations = cpu_data.IntelCPUGenerations
+        haswell_or_newer = codename in generations and generations.index(codename) <= generations.index("Haswell-EX")
+
+        if not (is_amd or (not has_igpu and haswell_or_newer) or any(name in codename for name in ("Coffee Lake", "Comet Lake", "Ice Lake"))):
+            return smbios_model
+
+        if "Laptop" in platform:
+            core_count = self.get_core_count(cpu)
+            return "MacBookPro16,2" if core_count < 6 else "MacBookPro16,1"
+
+        if has_igpu and not is_amd and not self.is_hedt_cpu(cpu):
+            core_count = self.get_core_count(cpu)
+            return "iMac20,1" if core_count < 10 else "iMac20,2"
+
+        return "MacPro7,1"
+
+    def get_core_count(self, cpu, default=4):
+        try:
+            return int(cpu.get("Core Count"))
+        except (TypeError, ValueError):
+            return default
+
+    def is_hedt_cpu(self, cpu):
+        codename = cpu.get("Codename", "")
+        name = cpu.get("Processor Name", "")
+        if codename in cpu_data.IntelCPUGenerations[45:66]:
+            return codename.endswith(("-X", "-P", "-W", "-E", "-EP", "-EX"))
+        if codename in cpu_data.IntelCPUGenerations[66:]:
+            return "Xeon" in name
+        return False
+
+    def select_default_smbios_model(self, hardware_report, macos_version):
         platform = "NUC" if "NUC" in hardware_report.get("Motherboard").get("Name") else hardware_report.get("Motherboard").get("Platform")
         codename = hardware_report.get("CPU").get("Codename")
 

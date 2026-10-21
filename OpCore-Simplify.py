@@ -1,6 +1,7 @@
 from Scripts.datasets import os_data
 from Scripts.datasets import chipset_data
 from Scripts import acpi_guru
+from Scripts import bios_checklist
 from Scripts import compatibility_checker
 from Scripts import config_prodigy
 from Scripts import gathering_files
@@ -36,6 +37,7 @@ class OCPE:
         self.rf = recovery_fetcher.RecoveryFetcher()
         self.val = validator.ConfigValidator()
         self.usb = usb_writer.USBWriter()
+        self.bios_checklist = bios_checklist.BIOSChecklist()
         self.r = run.Run()
         self.result_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Results")
 
@@ -341,24 +343,47 @@ class OCPE:
         time.sleep(2)
         
     def check_bios_requirements(self, org_hardware_report, hardware_report):
-        requirements = []
-        
+        disable = []
+        enable = []
+
         org_firmware_type = org_hardware_report.get("BIOS", {}).get("Firmware Type", "Unknown")
         firmware_type = hardware_report.get("BIOS", {}).get("Firmware Type", "Unknown")
         if org_firmware_type == "Legacy" and firmware_type == "UEFI":
-            requirements.append("Enable UEFI mode (disable Legacy/CSM (Compatibility Support Module))")
+            enable.append("UEFI mode (disable Legacy/CSM (Compatibility Support Module))")
 
         secure_boot = hardware_report.get("BIOS", {}).get("Secure Boot", "Unknown")
         if secure_boot != "Disabled":
-            requirements.append("Disable Secure Boot")
-        
+            disable.append("Secure Boot")
+
+        resizable_bar_enabled = any(gpu_props.get("Resizable BAR", "Disabled") == "Enabled" for gpu_props in hardware_report.get("GPU", {}).values())
+        cpu = hardware_report.get("CPU", {})
+        hedt_npci = not resizable_bar_enabled and self.bios_checklist.is_intel_hedt_cpu(cpu.get("Processor Name", ""), cpu.get("Codename", ""))
+
         if hardware_report.get("Motherboard", {}).get("Platform") == "Desktop" and hardware_report.get("Motherboard", {}).get("Chipset") in chipset_data.IntelChipsets[112:]:
-            resizable_bar_enabled = any(gpu_props.get("Resizable BAR", "Disabled") == "Enabled" for gpu_props in hardware_report.get("GPU", {}).values())
-            if not resizable_bar_enabled:
-                requirements.append("Enable Above 4G Decoding")
-                requirements.append("Disable Resizable BAR/Smart Access Memory")
-                
-        return requirements
+            if not resizable_bar_enabled and not hedt_npci:
+                enable.append("Above 4G Decoding")
+
+        if resizable_bar_enabled:
+            notes = ["Resizable BAR may stay enabled; ResizeAppleGpuBars in the generated config handles it."]
+        else:
+            notes = []
+            disable.append("Resizable BAR/Smart Access Memory")
+
+        checklist = self.bios_checklist.build(hardware_report)
+        keywords = ("Secure Boot", "Above 4G", "CSM")
+        handled = [word for word in keywords if any(word in item for item in disable + enable)]
+        if hedt_npci:
+            handled.append("Above 4G")
+
+        for items, extra, filtered in ((disable, checklist["disable"], True), (enable, checklist["enable"], True), (notes, checklist["notes"], False)):
+            for item in extra:
+                if item in items:
+                    continue
+                if filtered and any(word in item for word in handled):
+                    continue
+                items.append(item)
+
+        return {"disable": disable, "enable": enable, "notes": notes}
 
     def before_using_efi(self, org_hardware_report, hardware_report):
         self.u.head("Before Using EFI")
@@ -367,11 +392,13 @@ class OCPE:
         print("")
         
         bios_requirements = self.check_bios_requirements(org_hardware_report, hardware_report)
-        if bios_requirements:
-            print("* BIOS/UEFI Settings Required:")
-            for requirement in bios_requirements:
-                print("    - {}".format(requirement))
-            print("")
+        print("* BIOS/UEFI Settings Required:")
+        for title, field in (("Disable", "disable"), ("Enable", "enable"), ("Notes", "notes")):
+            if bios_requirements[field]:
+                print("    {}:".format(title))
+                for item in bios_requirements[field]:
+                    print("    - {}".format(item))
+        print("")
         
         print("* USB Mapping:")
         print("    - Use USBToolBox tool to map USB ports.")
