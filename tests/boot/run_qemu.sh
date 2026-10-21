@@ -14,6 +14,7 @@ set -u
 # job log itself needs a login, so every diagnostic worth reading goes through here.
 annotate() {
     local kind="$1" title="$2" msg="$3"
+    msg="${msg//$''/}"
     msg="${msg//'%'/%25}"
     msg="${msg//$'
 '/%0A}"
@@ -155,17 +156,22 @@ done
 kill "$QPID" 2>/dev/null
 wait "$QPID" 2>/dev/null
 
+tr -d '' < "$SERIAL_LOG" > "$SERIAL_LOG.clean" && mv "$SERIAL_LOG.clean" "$SERIAL_LOG"
 echo "================ serial.log ================"
 cat "$SERIAL_LOG"
 echo "============================================"
 serial_lines=$(wc -l < "$SERIAL_LOG")
+if grep -a -q -E "X64 Exception|ASSERT" "$SERIAL_LOG"; then
+    annotate error qemu-exception "context around the first exception: $(grep -a -n -m1 -B 25 -A 30 -E 'X64 Exception|ASSERT' "$SERIAL_LOG" | tail -c 3500)"
+fi
 if [ "$serial_lines" -eq 0 ]; then
     echo "================ ovmf.log (serial log was empty) ================"
     tail -n 80 "$OVMF_LOG" 2>/dev/null
     echo "================================================================"
     annotate warning qemu-boot "serial.log is empty after ${elapsed}s. OVMF debug tail: $(tail -n 40 "$OVMF_LOG" 2>/dev/null | tail -c 2500)"
 else
-    annotate notice qemu-serial-tail "last lines of serial.log (${serial_lines} lines): $(tail -n 40 "$SERIAL_LOG" | tail -c 2500)"
+    annotate notice qemu-serial-head "first lines of serial.log (${serial_lines} lines): $(head -n 30 "$SERIAL_LOG" | head -c 2500)"
+    annotate notice qemu-serial-tail "last lines of serial.log: $(tail -n 40 "$SERIAL_LOG" | tail -c 3000)"
 fi
 summary "## QEMU boot" "" '```' "$(tail -n 200 "$SERIAL_LOG")" '```' "" "OVMF debug tail:" '```' "$(tail -n 60 "$OVMF_LOG" 2>/dev/null)" '```'
 
