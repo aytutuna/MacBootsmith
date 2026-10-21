@@ -20,8 +20,9 @@ CI runs: https://github.com/aytutuna/MacBootsmith/actions
 6. USB installer creation with diskpart: FAT32 partition, EFI and recovery copied and verified with SHA-256. Only USB-bus disks are offered, and you must confirm the erase.
 7. BIOS checklist for the detected platform: the firmware settings to disable and enable before booting the installer.
 8. USB port mapping on the target machine: every controller and root-hub port is listed through Windows' USB hub interface, you plug a device into each port you want, and the build turns the selection into a UTBMap kext in place of the placeholder map.
+9. Post-install kit: a checklist for the installed system made from the build's choices (EFI move, root patches, audio layouts, Broadcom firmware, USB checks, Apple Account prerequisites, sleep, updates), a macOS helper script, the generated SMBIOS values and optionally the tools (Hackintool, ProperTree, MountEFI), copied to the USB drive with the installer.
 
-Planned, not implemented yet: a post-install kit on the USB drive and a graphical interface. See `docs/reference/gaps.md` for the ranked list.
+Planned, not implemented yet: a graphical interface. See `docs/reference/gaps.md` for the ranked list.
 
 ## What it does not do
 
@@ -50,7 +51,8 @@ Run `OpCore-Simplify.bat` as administrator. The main menu offers:
 6. USB Port Mapping: discover the ports on this machine and choose which ones macOS gets (at most 15 per controller).
 7. Build OpenCore EFI: write the EFI and run ocvalidate on it.
 8. Download macOS Recovery: fetch the recovery image for the chosen release.
-9. Create USB Installer: format a USB drive and write the installer, or copy only the EFI to an existing drive.
+9. Prepare Post-Install Kit: write the post-install checklist, helper script and SMBIOS values to `Results\PostInstall`, with or without the tools.
+10. Create USB Installer: format a USB drive and write the installer, or copy only the EFI to an existing drive. The post-install kit is copied too when it exists.
 
 Then boot from the USB and work through the on-screen BIOS checklist.
 
@@ -71,7 +73,7 @@ python -m unittest discover -s tests
 The CI workflow (`.github/workflows/ci.yml`) has four jobs:
 
 - test: the unit tests.
-- build: headless EFI build per hardware report fixture, with an ocvalidate check; the EFI is uploaded as an artifact.
+- build: headless EFI build per hardware report fixture, with an ocvalidate check and, for the desktop fixture, a docs-only post-install kit check; the EFI is uploaded as an artifact.
 - boot: boots the built EFI in QEMU and checks that the OpenCore picker appears.
 - recovery-download: downloads and verifies a macOS 26 recovery image.
 

@@ -7,6 +7,7 @@ from Scripts import config_prodigy
 from Scripts import gathering_files
 from Scripts import hardware_customizer
 from Scripts import kext_maestro
+from Scripts import postinstall_kit
 from Scripts import preflight
 from Scripts import recovery_fetcher
 from Scripts import report_validator
@@ -46,6 +47,8 @@ class OCPE:
         self.usb_map_override = None
         self.usb_map_source = None
         self.bios_checklist = bios_checklist.BIOSChecklist()
+        self.pk = postinstall_kit.PostInstallKit()
+        self.build_summary = None
         self.r = run.Run()
         self.result_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Results")
 
@@ -318,6 +321,15 @@ class OCPE:
         
         title = "Building OpenCore EFI"
 
+        self.build_summary = None
+        self.pk.invalidate(os.path.join(self.result_dir, postinstall_kit.KIT_FOLDER))
+        stale_summary = os.path.join(self.result_dir, postinstall_kit.SUMMARY_NAME)
+        if os.path.isfile(stale_summary):
+            try:
+                os.remove(stale_summary)
+            except OSError as e:
+                print("Could not remove {}: {}".format(stale_summary, e))
+
         self.u.progress_bar(title, steps, 0)
         self.u.create_folder(self.result_dir)
         self.u.create_folder(os.path.join(self.result_dir, "EFI"), remove_content=True)
@@ -451,9 +463,56 @@ class OCPE:
             print("")
             self.u.request_input("Press Enter to continue...")
 
+        self.record_build_summary(hardware_report, config_data, smbios_model, macos_version, needs_oclp, is_valid)
+
         print("OpenCore EFI build complete.")
         time.sleep(2)
         return is_valid
+
+    def record_build_summary(self, hardware_report, config_data, smbios_model, macos_version, needs_oclp, is_valid):
+        usb_map_kext = None
+        if self.usb_map_source:
+            usb_map_kext = os.path.basename(os.path.normpath(self.usb_map_source["path"])) if self.usb_map_source["kind"] == "kext" else usb_mapper.KEXT_NAME
+        kext_index = kext_maestro.kext_data.kext_index_by_name
+        self.build_summary = postinstall_kit.make_build_summary(
+            hardware_report, config_data, smbios_model, macos_version, needs_oclp,
+            ocvalidate={True: "passed", False: "errors"}.get(is_valid, "unavailable"),
+            whatevergreen_first_boot=getattr(self.co, "whatevergreen_first_boot", None),
+            applealc=self.k.kexts[kext_index["AppleALC"]].checked,
+            simplehda=self.k.kexts[kext_index["SimpleHDA"]].checked,
+            bcmc=self.k.kexts[kext_index["AppleBCMWLANCompanion"]].checked,
+            usb_map_kext=usb_map_kext
+        )
+        self.pk.save_summary(self.build_summary, os.path.join(self.result_dir, postinstall_kit.SUMMARY_NAME))
+        kit_dir = os.path.join(self.result_dir, postinstall_kit.KIT_FOLDER)
+        if self.pk.invalidate(kit_dir):
+            print("The previous post-install kit in {} was made for an older build and was removed; prepare it again with option 9.".format(kit_dir))
+        return self.build_summary
+
+    def prepare_post_install_kit(self, mode=None):
+        summary = self.build_summary or self.pk.load_summary(os.path.join(self.result_dir, postinstall_kit.SUMMARY_NAME))
+        self.u.head("Prepare Post-Install Kit")
+        print("")
+        if not summary:
+            print("\033[1;93mBuild the OpenCore EFI first (option 7). The kit is made from {}.\033[0m".format(os.path.join(self.result_dir, postinstall_kit.SUMMARY_NAME)))
+            return None
+
+        if mode is None:
+            print("Build: {} with {}, made {}".format(summary.get("macos_name"), summary.get("smbios_model"), summary.get("created")))
+            print("")
+            print("1. Full kit: checklist, helper script, smbios.txt and tools (Hackintool, ProperTree, MountEFI and the ones this build needs)")
+            print("2. Docs only: checklist, helper script and smbios.txt, nothing is downloaded")
+            print("")
+            print("Any other key to go back")
+            print("")
+            mode = {"1": "full", "2": "docs-only"}.get(self.u.request_input("Select an option: ").strip())
+            if not mode:
+                return None
+            print("")
+
+        result = self.pk.build(summary, os.path.join(self.result_dir, postinstall_kit.KIT_FOLDER), mode, config_path=os.path.join(self.result_dir, "EFI", "OC", "config.plist"))
+        print("Option 10 (Create USB Installer) copies this folder to the USB drive as PostInstall.")
+        return result
         
     def check_bios_requirements(self, org_hardware_report, hardware_report, overrides=None):
         disable = []
@@ -563,6 +622,7 @@ class OCPE:
         print("* After Installing macOS:")
         for note in self.post_install_notes():
             print("    - {}".format(note))
+        print("    - Option 9 (Prepare Post-Install Kit) writes the post-install steps for this build as a checklist; option 10 copies it to the USB drive.")
         print("")
         self.u.request_input()
         self.u.open_folder(self.result_dir)
@@ -593,6 +653,10 @@ class OCPE:
         return exit_code
 
     def run_headless(self, answers):
+        kit_mode = answers.get("postinstall_kit", False)
+        if kit_mode not in (False, None) and kit_mode not in postinstall_kit.MODES:
+            raise Exception('postinstall_kit must be "full", "docs-only" or false.')
+
         macos_answer = self.resolve_headless_macos_version(answers.get("macos_version", ""))
         prompts = {"Please enter the macOS version": macos_answer}
         for key, value in (answers.get("prompts") or {}).items():
@@ -709,6 +773,11 @@ class OCPE:
         for note in self.post_install_notes():
             print("    {}".format(note))
 
+        if kit_mode:
+            print("")
+            if not self.prepare_post_install_kit(kit_mode):
+                raise Exception("The post-install kit could not be prepared.")
+
         if not answers.get("skip_recovery", True):
             print("")
             if not self.rf.download(macos_version, self.result_dir):
@@ -749,7 +818,8 @@ class OCPE:
             print("6. USB Port Mapping")
             print("7. Build OpenCore EFI")
             print("8. Download macOS Recovery")
-            print("9. Create USB Installer")
+            print("9. Prepare Post-Install Kit")
+            print("10. Create USB Installer")
             print("")
             print("Q. Quit")
             print("")
@@ -793,6 +863,12 @@ class OCPE:
                 continue
 
             if option == "9":
+                self.prepare_post_install_kit()
+                print("")
+                self.u.request_input("Press Enter to main menu...")
+                continue
+
+            if option == "10":
                 self.u.head("Create USB Installer")
                 print("")
                 print("1. Format a USB drive and write the installer")

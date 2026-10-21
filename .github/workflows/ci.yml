@@ -92,6 +92,21 @@ jobs:
             echo "::error::${{ matrix.fixture }}: ocvalidate exited with $rc"
             exit 1
           fi
+      - name: Check post-install kit
+        if: env.build_exit == '0' && matrix.fixture == 'desktop'
+        shell: bash
+        run: |
+          kit=Results/PostInstall
+          for name in POST-INSTALL.md post-install.command smbios.txt; do
+            if [ ! -f "$kit/$name" ]; then
+              echo "::error::$kit/$name was not created"
+              exit 1
+            fi
+          done
+          if [ -d "$kit/Tools" ]; then
+            echo "::error::docs-only kit must not download tools"
+            exit 1
+          fi
       - name: Upload EFI
         if: env.build_exit == '0'
         uses: actions/upload-artifact@v4

@@ -82,10 +82,11 @@ Ranking is by effect on a first successful boot, then on post-install success. P
 - Pipeline: EFI build for HEDT, first boot.
 - Idea: for X99/X299 (the app already has `is_intel_hedt_cpu`) offer an "emulated NVRAM" build option and add the logout-hook install to the post-install kit.
 
-### 11. Post-install kit content
+### 11. Post-install kit content (implemented, several guide steps still open)
 
 The guide's post-install steps with no counterpart in the repo: `pmset` sleep preparation (`autopoweroff`, `powernap`, `standby`, `proximitywake`, `tcpkeepalive` set to 0), removing the `alcid` boot-arg once `layout-id` is in `DeviceProperties` (the app writes both: `config_prodigy.py:356` and 572), power-management check (`X86PlatformPlugin` attached), SIP reduction after install, RELEASE swap and `Target` 3 for quieter boots, UIScale/resolution settings, OpenCore update procedure (spare USB, `ocvalidate` of the same release), RTC fixes (`DisableRtcChecksum` only for ASUS/HP at `config_prodigy.py:660`; `RTCMemoryFixup` exists in `kext_data.py` but is never selected by `kext_maestro.py`).
 Pipeline: post-install. Idea: a generated checklist (`.md` or `.command`) on the USB keyed by the choices made in the build.
+- Implemented 2026-10-21: main-menu option 9 (Prepare Post-Install Kit, `Scripts/postinstall_kit.py`) writes `Results\PostInstall` from `Results\build_summary.json`: `POST-INSTALL.md` (sections chosen by the build), `post-install.command` (pmset lines and the AppleBCMWLANCompanion firmware copy, each after a prompt) and `smbios.txt`; the full mode adds Hackintool, ProperTree, MountEFI and the companion firmware (`Scripts/datasets/postinstall_tools.py`). The USB writer copies the folder. Still open from the list above: power-management check, RELEASE swap and `Target`, UIScale, OpenCore update procedure, RTC fixes.
 
 ### 12. Compatibility surfaces from the hardware limits page
 

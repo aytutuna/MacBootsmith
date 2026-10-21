@@ -3,6 +3,7 @@
     "usb_map": "tests/fixtures/desktop/USBMap.json",
     "macos_version": "25.0.0",
     "skip_recovery": true,
+    "postinstall_kit": "docs-only",
     "prompts": {
         "Continue with OpenCore Legacy Patcher": "yes",
         "Build EFI for UEFI": "yes",

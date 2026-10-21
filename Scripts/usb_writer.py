@@ -8,6 +8,9 @@ import shutil
 import time
 
 class USBWriter:
+    postinstall_folder = "PostInstall"
+    postinstall_marker = "POST-INSTALL.md"
+
     def __init__(self):
         self.utils = utils.Utils()
         self.r = run.Run()
@@ -193,23 +196,29 @@ class USBWriter:
                 mismatches.append("Unexpected: {}".format(os.path.join(dst, rel)))
         return mismatches
 
+    def _drive_root(self, drive):
+        return drive + "\\"
+
     def copy_payload(self, drive, efi_dir, recovery_dir=None):
         if not self._supported():
             return None
         drive = str(drive).upper()
         if not re.match(r"^[A-Z]:$", drive):
             return (False, ["Invalid drive"])
-        root = drive + "\\"
+        root = self._drive_root(drive)
         efi_source = os.path.join(efi_dir, "EFI")
         if not os.path.isdir(efi_source):
             efi_source = efi_dir
         jobs = [(efi_source, os.path.join(root, "EFI"))]
         if recovery_dir:
             jobs.append((recovery_dir, os.path.join(root, "com.apple.recovery.boot")))
+        postinstall_source = self.postinstall_source(efi_dir)
+        if postinstall_source:
+            jobs.append((postinstall_source, os.path.join(root, self.postinstall_folder)))
         mismatches = []
         for src, dst in jobs:
             try:
-                if os.path.basename(dst) == "EFI" and os.path.isdir(dst):
+                if os.path.basename(dst) in ("EFI", self.postinstall_folder) and os.path.isdir(dst):
                     shutil.rmtree(dst)
                 print("Copying {} -> {}".format(src, dst))
                 shutil.copytree(src, dst, dirs_exist_ok=True)
@@ -217,6 +226,12 @@ class USBWriter:
             except Exception as e:
                 mismatches.append("Copy failed for {}: {}".format(dst, e))
         return (not mismatches, mismatches)
+
+    def postinstall_source(self, efi_dir):
+        path = os.path.join(efi_dir, self.postinstall_folder)
+        if os.path.isfile(os.path.join(path, self.postinstall_marker)):
+            return path
+        return None
 
     def _confirm(self, prompt):
         return self.utils.request_input(prompt).strip().lower() in ("y", "yes")
@@ -310,6 +325,8 @@ class USBWriter:
         print("  - EFI (OpenCore)")
         if has_recovery:
             print("  - com.apple.recovery.boot (macOS recovery)")
+        if self.postinstall_source(efi_dir):
+            print("  - PostInstall (post-install checklist, helper script and tools)")
         print("")
         print("Next: boot the target PC from this USB drive, then pick the recovery entry in the OpenCore picker.")
 
@@ -342,10 +359,19 @@ class USBWriter:
             print("Drive {}: is not an external USB drive (bus: {}).".format(letter, info.get("BusType")))
             return
         drive = "{}:".format(letter)
-        if os.path.isdir(os.path.join(drive + "\\", "EFI")):
-            if not self._confirm("{}\\EFI already exists and will be replaced. Continue? (y/N): ".format(drive)):
+        existing = [name for name in ("EFI", self.postinstall_folder) if os.path.isdir(os.path.join(drive + "\\", name))]
+        if self.postinstall_source(efi_dir):
+            replaced = existing
+        else:
+            replaced = [name for name in existing if name == "EFI"]
+            if self.postinstall_folder in existing:
+                print("\033[1;93m{0}\\{1} is from an older build and the current build has no post-install kit (use option 9). It is left as it is and does not match the new EFI.\033[0m".format(drive, self.postinstall_folder))
+        if replaced:
+            if not self._confirm("{} will be replaced on {}. Continue? (y/N): ".format(", ".join(replaced), drive)):
                 print("Aborted.")
                 return
         ok, mismatches = self.copy_payload(drive, efi_dir)
         print("")
         self._print_verification(ok, mismatches)
+        if ok and self.postinstall_source(efi_dir):
+            print("PostInstall was copied to {} as well.".format(drive))

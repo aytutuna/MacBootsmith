@@ -6,6 +6,19 @@ Sources are given per section. "Silent" means the sources do not cover it.
 
 Suggested order: (1) move the EFI to the internal drive, (2) USB map, (3) audio, (4) iServices prerequisites, (5) power management/sleep, (6) security settings, (7) cosmetics, (8) updates.
 
+## Post-install kit (what the app generates)
+
+Main-menu option 9 (Prepare Post-Install Kit) turns this page into a checklist for one build. Every EFI build writes `Results\build_summary.json` (macOS version, SMBIOS model, whether root patches are needed, WhateverGreen first-boot mode, codec and layout-id with the codec's other layouts, AppleBCMWLANCompanion devices, USB map, Insyde firmware, SIP, SecureBootModel, revpatch), so the kit can also be made in a later session without rebuilding. A rebuild removes the generated files of an older kit so a stale checklist is never copied. Headless runs make it with `"postinstall_kit": "full"` or `"docs-only"` in the answers file.
+
+`Results\PostInstall` then holds:
+
+- `POST-INSTALL.md`: first boot checks, re-enabling WhateverGreen, moving the EFI with MountEFI and setting `LauncherOption` (`Short` when the BIOS vendor is Insyde), OCLP-Mod root patches, audio layouts to try, the Broadcom firmware copy, USB map checks, the Apple Account prerequisites from section 4 (en0, NVRAM test), the pmset lines from section 7, OTA updates, and what to do if it does not boot. Sections that do not apply to the build are left out.
+- `post-install.command`: a bash script for macOS that offers the pmset lines and, when the companion was chosen, copies the firmware after checking its SHA-256. It asks before each action and never touches an EFI partition. Run it with `bash post-install.command`; FAT32 keeps no executable bit.
+- `smbios.txt`: SystemProductName, SystemSerialNumber, MLB, SystemUUID and ROM from the generated config.plist.
+- `Tools` (full mode only): Hackintool, ProperTree, MountEFI and the companion firmware, downloaded with SHA-256 checks against hashes stored in the app (release digests, or pinned commit archives for ProperTree and MountEFI; no branch heads), and `Tools\manifest.json` records what was fetched so a repeat build reuses the files. `Docs` holds local copies of the post-install and install-flow pages for use on the Mac before it has internet. OCLP-Mod is only linked with its release hash, because its package carries root-patch payloads taken from older macOS releases.
+
+The USB writer (option 10) copies the folder to `<drive>\PostInstall` and verifies it like the EFI.
+
 ## 1. Move OpenCore from the USB to the internal drive
 
 The guide documents the macOS method only.
