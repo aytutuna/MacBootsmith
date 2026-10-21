@@ -6,10 +6,12 @@ from Scripts import config_prodigy
 from Scripts import gathering_files
 from Scripts import hardware_customizer
 from Scripts import kext_maestro
+from Scripts import recovery_fetcher
 from Scripts import report_validator
 from Scripts import run
 from Scripts import smbios
 from Scripts import utils
+from Scripts import validator
 import updater
 import os
 import sys
@@ -30,6 +32,8 @@ class OCPE:
         self.k = kext_maestro.KextMaestro()
         self.s = smbios.SMBIOS()
         self.v = report_validator.ReportValidator()
+        self.rf = recovery_fetcher.RecoveryFetcher()
+        self.val = validator.ConfigValidator()
         self.r = run.Run()
         self.result_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Results")
 
@@ -208,7 +212,8 @@ class OCPE:
         title = "Building OpenCore EFI"
 
         self.u.progress_bar(title, steps, 0)
-        self.u.create_folder(self.result_dir, remove_content=True)
+        self.u.create_folder(self.result_dir)
+        self.u.create_folder(os.path.join(self.result_dir, "EFI"), remove_content=True)
 
         if not os.path.exists(self.k.ock_files_dir):
             raise Exception("Directory '{}' does not exist.".format(self.k.ock_files_dir))
@@ -310,7 +315,26 @@ class OCPE:
                 print("Failed to remove file: {}".format(e))
         
         self.u.progress_bar(title, steps, len(steps), done=True)
-        
+
+        print("Validating config.plist with ocvalidate...")
+        try:
+            is_valid, validation_output = self.val.validate(config_file)
+        except Exception as e:
+            is_valid, validation_output = None, "Unable to run ocvalidate: {}".format(e)
+        if validation_output:
+            print(validation_output)
+        print("")
+        if is_valid is True:
+            print("\033[92mconfig.plist passed ocvalidate.\033[0m")
+        elif is_valid is False:
+            print("\033[1;93mWarning: ocvalidate reported errors in config.plist. The EFI may not boot.\033[0m")
+            print("")
+            self.u.request_input("Press Enter to continue...")
+        else:
+            print("config.plist was not validated (ocvalidate is unavailable). This does not mean the config has errors.")
+            print("")
+            self.u.request_input("Press Enter to continue...")
+
         print("OpenCore EFI build complete.")
         time.sleep(2)
         
@@ -389,6 +413,7 @@ class OCPE:
             print("4. Customize Kexts")
             print("5. Customize SMBIOS Model")
             print("6. Build OpenCore EFI")
+            print("7. Download macOS Recovery")
             print("")
             print("Q. Quit")
             print("")
@@ -408,6 +433,28 @@ class OCPE:
                 self.ac.select_acpi_patches(customized_hardware, disabled_devices)
                 needs_oclp = self.k.select_required_kexts(customized_hardware, macos_version, needs_oclp, self.ac.patches)
                 self.s.smbios_specific_options(customized_hardware, smbios_model, macos_version, self.ac.patches, self.k)
+
+            if option == "7":
+                if not macos_version:
+                    self.u.head()
+                    print("\n\n")
+                    print("\033[1;93mPlease select a macOS version first.\033[0m")
+                    print("\n\n")
+                    self.u.request_input("Press Enter to go back...")
+                    continue
+
+                self.u.head("Download macOS Recovery")
+                print("")
+                recovery_path = self.rf.download(macos_version, self.result_dir)
+                print("")
+                if recovery_path:
+                    print("macOS recovery files are ready at:")
+                    print("\t{}".format(recovery_path))
+                    print("")
+                    print("Copy the com.apple.recovery.boot folder to the root of the FAT32 USB partition, next to the EFI folder.")
+                    print("")
+                self.u.request_input("Press Enter to main menu...")
+                continue
 
             if not hardware_report_path:
                 self.u.head()

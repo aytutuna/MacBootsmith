@@ -149,6 +149,16 @@ class gatheringFiles:
                     shutil.move(source_macserial_path, destination_macserial_path)
                     if os.name != "nt":
                         subprocess.run(["chmod", "+x", destination_macserial_path])
+
+            ocvalidate_paths = self.utils.find_matching_paths(temp_product_dir, name_filter="ocvalidate", type_filter="file")
+            for ocvalidate_path, _ in ocvalidate_paths:
+                if os.path.splitext(ocvalidate_path)[1].lower() not in ("", ".exe", ".linux"):
+                    continue
+                source_ocvalidate_path = os.path.join(self.temporary_dir, product_name, ocvalidate_path)
+                destination_ocvalidate_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), os.path.basename(ocvalidate_path))
+                shutil.move(source_ocvalidate_path, destination_ocvalidate_path)
+                if os.name != "nt":
+                    subprocess.run(["chmod", "+x", destination_ocvalidate_path])
         
         return True
     
