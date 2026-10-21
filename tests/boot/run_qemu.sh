@@ -10,6 +10,27 @@
 # after the first green run on CI, once the real serial log has been inspected.
 set -u
 
+# GitHub Actions annotations are visible through the public API even when the
+# job log itself needs a login, so every diagnostic worth reading goes through here.
+annotate() {
+    local kind="$1" title="$2" msg="$3"
+    msg="${msg//'%'/%25}"
+    msg="${msg//$'
+'/%0A}"
+    echo "::${kind} title=${title}::${msg}"
+}
+summary() {
+    if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+        printf '%s
+' "$@" >> "$GITHUB_STEP_SUMMARY"
+    fi
+}
+fail() {
+    echo "FAIL: $1" >&2
+    annotate error qemu-boot "$1"
+    exit 1
+}
+
 if [ $# -ne 1 ] || [ ! -d "$1/OC" ] || [ ! -d "$1/BOOT" ]; then
     echo "usage: $0 <efi-dir containing BOOT and OC>" >&2
     exit 2
@@ -40,8 +61,7 @@ import json, sys
 print(json.load(sys.stdin)["OpenCorePkg"]["versions"][0]["links"]["debug"])
 ')
 if [ -z "$url" ] || ! curl -fsSL -o "$DL/debug.zip" "$url"; then
-    echo "Could not download an OpenCore DEBUG build" >&2
-    exit 1
+    fail "Could not download an OpenCore DEBUG build from ${url:-<no url>}"
 fi
 echo "Using $url"
 
@@ -52,8 +72,7 @@ PY
 DBG="$DL/x/X64/EFI"
 for f in BOOT/BOOTx64.efi OC/OpenCore.efi OC/Drivers/OpenRuntime.efi; do
     if [ ! -f "$DBG/$f" ]; then
-        echo "DEBUG package is missing $f" >&2
-        exit 1
+        fail "DEBUG package is missing $f"
     fi
     mkdir -p "$(dirname "$EFI/$f")"
     cp "$DBG/$f" "$EFI/$f"
@@ -85,8 +104,9 @@ PY
 # 3. Build a FAT32 disk image without root.
 IMG="$WORK/disk.img"
 truncate -s 256M "$IMG"
-mformat -i "$IMG" -F -h 64 -s 32 -t 256 ::
-mcopy -s -i "$IMG" "$EFI" ::/EFI
+mformat -i "$IMG" -F -h 64 -s 32 -t 256 :: || fail "mformat failed"
+mcopy -s -i "$IMG" "$EFI" ::/EFI || fail "mcopy failed"
+mdir -i "$IMG" ::/EFI/BOOT ::/EFI/OC || fail "image does not contain EFI/BOOT and EFI/OC"
 
 # 4. Locate OVMF.
 find_ovmf() {
@@ -98,16 +118,20 @@ find_ovmf() {
     done
     return 1
 }
-CODE=$(find_ovmf OVMF_CODE_4M.fd OVMF_CODE.fd) || { echo "OVMF_CODE not found" >&2; exit 1; }
-VARS=$(find_ovmf OVMF_VARS_4M.fd OVMF_VARS.fd) || { echo "OVMF_VARS not found" >&2; exit 1; }
+CODE=$(find_ovmf OVMF_CODE_4M.fd OVMF_CODE.fd) || fail "OVMF_CODE not found; /usr/share/OVMF has: $(ls /usr/share/OVMF 2>/dev/null | tr '
+' ' ')"
+VARS=$(find_ovmf OVMF_VARS_4M.fd OVMF_VARS.fd) || fail "OVMF_VARS not found; /usr/share/OVMF has: $(ls /usr/share/OVMF 2>/dev/null | tr '
+' ' ')"
 cp "$VARS" "$WORK/vars.fd"
 echo "OVMF code: $CODE"
 echo "OVMF vars: $VARS"
+annotate notice qemu-env "$(qemu-system-x86_64 --version | head -1); OVMF: $CODE; OpenCore DEBUG: $url"
+OVMF_LOG="$WORK/ovmf.log"
 
 # 5. Run QEMU, stop early once a success marker shows up.
 : > "$SERIAL_LOG"
 qemu-system-x86_64 -machine q35 -cpu Penryn -m 2048 -nographic -monitor none \
-    -serial "file:$SERIAL_LOG" \
+    -serial "file:$SERIAL_LOG"     -debugcon "file:$OVMF_LOG" -global isa-debugcon.iobase=0x402 \
     -drive if=pflash,format=raw,readonly=on,file="$CODE" \
     -drive if=pflash,format=raw,file="$WORK/vars.fd" \
     -drive format=raw,file="$IMG" &
@@ -134,19 +158,28 @@ wait "$QPID" 2>/dev/null
 echo "================ serial.log ================"
 cat "$SERIAL_LOG"
 echo "============================================"
+serial_lines=$(wc -l < "$SERIAL_LOG")
+if [ "$serial_lines" -eq 0 ]; then
+    echo "================ ovmf.log (serial log was empty) ================"
+    tail -n 80 "$OVMF_LOG" 2>/dev/null
+    echo "================================================================"
+    annotate warning qemu-boot "serial.log is empty after ${elapsed}s. OVMF debug tail: $(tail -n 40 "$OVMF_LOG" 2>/dev/null | tail -c 2500)"
+else
+    annotate notice qemu-serial-tail "last lines of serial.log (${serial_lines} lines): $(tail -n 40 "$SERIAL_LOG" | tail -c 2500)"
+fi
+summary "## QEMU boot" "" '```' "$(tail -n 200 "$SERIAL_LOG")" '```' "" "OVMF debug tail:" '```' "$(tail -n 60 "$OVMF_LOG" 2>/dev/null)" '```'
 
 # 6. Verdict.
 for re in "${FAILURE_REGEXES[@]}"; do
     if grep -a -q -E "$re" "$SERIAL_LOG"; then
-        echo "FAIL: found failure marker '$re'"
-        exit 1
+        fail "found failure marker '$re' in serial.log"
     fi
 done
 for re in "${SUCCESS_REGEXES[@]}"; do
     if grep -a -q -E "$re" "$SERIAL_LOG"; then
         echo "PASS: found success marker '$re'"
+        annotate notice qemu-boot "PASS: found success marker '$re' after ${elapsed}s"
         exit 0
     fi
 done
-echo "FAIL: no success marker found within ${BOOT_TIMEOUT}s"
-exit 1
+fail "no success marker found within ${BOOT_TIMEOUT}s (${serial_lines} serial lines)"
