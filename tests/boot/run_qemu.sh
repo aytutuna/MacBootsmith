@@ -45,9 +45,18 @@ cp -r "$SRC_EFI" "$EFI"
 SERIAL_LOG="${SERIAL_LOG:-$PWD/serial.log}"
 BOOT_TIMEOUT="${BOOT_TIMEOUT:-120}"
 
+# Any of these means OpenCore got past driver loading and into the boot picker code path.
 SUCCESS_REGEXES=(
     "OC: Boot picker"
     "OCB: ShowPicker"
+    "OCB: Showing menu"
+    "OCB: Processing boot entries"
+    "OCB: Found [0-9]+ entries"
+    "OCB: Reading boot entries"
+    "OCB: ShowMenu"
+    "OCB: No bootable entries"
+    "OCB: Picker"
+    "OCUI:"
 )
 FAILURE_REGEXES=(
     "ASSERT"
@@ -92,7 +101,7 @@ sec = misc.setdefault("Security", {})
 # 75 = enable (1) + onscreen (2) + serial (8) + file (64); 67 would have no serial output
 dbg["Target"] = 75
 dbg["DisplayLevel"] = 2147483714
-dbg["DisableWatchdog"] = True
+dbg["DisableWatchDog"] = True
 boot["PickerMode"] = "Builtin"
 boot["ShowPicker"] = True
 boot["Timeout"] = 0
@@ -131,7 +140,17 @@ OVMF_LOG="$WORK/ovmf.log"
 
 # 5. Run QEMU, stop early once a success marker shows up.
 : > "$SERIAL_LOG"
-qemu-system-x86_64 -machine q35 -cpu Penryn -m 2048 -nographic -monitor none \
+# Apple's HfsPlus.efi faults with an invalid opcode on the old Penryn model, so use a
+# full-featured CPU: the host CPU under KVM when the runner exposes /dev/kvm, otherwise
+# everything TCG can emulate.
+if [ -w /dev/kvm ]; then
+    ACCEL=(-accel kvm -cpu host)
+else
+    ACCEL=(-accel tcg -cpu max)
+fi
+echo "QEMU acceleration: ${ACCEL[*]}"
+annotate notice qemu-accel "${ACCEL[*]}"
+qemu-system-x86_64 -machine q35 "${ACCEL[@]}" -m 2048 -nographic -monitor none \
     -serial "file:$SERIAL_LOG"     -debugcon "file:$OVMF_LOG" -global isa-debugcon.iobase=0x402 \
     -drive if=pflash,format=raw,readonly=on,file="$CODE" \
     -drive if=pflash,format=raw,file="$WORK/vars.fd" \
