@@ -546,7 +546,7 @@ class KextMaestro:
                 return
             
             self.utils.write_file(plist_path, bundle_info)
-        except:
+        except Exception:
             return            
         
     def load_kexts(self, hardware_report, macos_version, kexts_directory):

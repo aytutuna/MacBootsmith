@@ -10,9 +10,66 @@ import pathlib
 import zipfile
 import tempfile
 
+class HeadlessExit(BaseException):
+    pass
+
+class HeadlessPromptLoop(BaseException):
+    pass
+
 class Utils:
+    headless_answers = None
+    headless_repeat_limit = 20
+    headless_prompt_limit = 50
+    headless_total_limit = 300
+    _headless_last_prompt = None
+    _headless_repeat_count = 0
+    _headless_prompt_counts = {}
+    _headless_total_count = 0
+
     def __init__(self, script_name = "OpCore Simplify"):
         self.script_name = script_name
+
+    @classmethod
+    def set_headless(cls, answers):
+        cls.headless_answers = answers
+        cls._headless_last_prompt = None
+        cls._headless_repeat_count = 0
+        cls._headless_prompt_counts = {}
+        cls._headless_total_count = 0
+
+    @classmethod
+    def is_headless(cls):
+        return cls.headless_answers is not None
+
+    def headless_answer(self, prompt):
+        answers = Utils.headless_answers
+        prompt_text = str(prompt)
+
+        if prompt_text == Utils._headless_last_prompt:
+            Utils._headless_repeat_count += 1
+        else:
+            Utils._headless_last_prompt = prompt_text
+            Utils._headless_repeat_count = 1
+        if Utils._headless_repeat_count > Utils.headless_repeat_limit:
+            raise HeadlessPromptLoop("Prompt repeated {} times without progress: {}".format(Utils._headless_repeat_count - 1, prompt_text.strip()))
+
+        Utils._headless_total_count += 1
+        Utils._headless_prompt_counts[prompt_text] = Utils._headless_prompt_counts.get(prompt_text, 0) + 1
+        if Utils._headless_total_count > Utils.headless_total_limit:
+            raise HeadlessPromptLoop("More than {} prompts in one headless run".format(Utils.headless_total_limit))
+        if Utils._headless_prompt_counts[prompt_text] > Utils.headless_prompt_limit:
+            raise HeadlessPromptLoop("Prompt asked more than {} times in one headless run: {}".format(Utils.headless_prompt_limit, prompt_text.strip()))
+
+        lowered = prompt_text.lower()
+        for key, value in (answers.get("prompts") or {}).items():
+            if key and key.lower() in lowered:
+                answer = str(value)
+                print("{}{}".format(prompt_text, answer))
+                return answer
+
+        answer = str(answers.get("default", ""))
+        print("{}{}    [headless default]".format(prompt_text, answer))
+        return answer
 
     def clean_temporary_dir(self):
         temporary_dir = tempfile.gettempdir()
@@ -150,6 +207,9 @@ class Utils:
         return major, minor, patch
     
     def open_folder(self, folder_path):
+        if Utils.is_headless():
+            return
+
         if os.name == 'posix':
             if 'darwin' in os.uname().sysname.lower():
                 subprocess.run(['open', folder_path])
@@ -159,6 +219,9 @@ class Utils:
             os.startfile(folder_path)
 
     def request_input(self, prompt="Press Enter to continue..."):
+        if Utils.is_headless():
+            return self.headless_answer(prompt)
+
         if sys.version_info[0] < 3:
             user_response = raw_input(prompt)
         else:
@@ -186,6 +249,11 @@ class Utils:
         print("")
 
     def head(self, text = None, width = 68, resize=True):
+        if Utils.is_headless():
+            print("")
+            print("== {} ==".format(text if text is not None else self.script_name))
+            return
+
         if resize:
             self.adjust_window_size()
         os.system('cls' if os.name=='nt' else 'clear')
@@ -200,12 +268,18 @@ class Utils:
         print("╔{}╗\n║{}║\n╚{}╝".format(separator, title, separator))
     
     def adjust_window_size(self, content=""):
+        if Utils.is_headless():
+            return
+
         lines = content.splitlines()
         rows = len(lines)
         cols = max(len(line) for line in lines) if lines else 0
         print('\033[8;{};{}t'.format(max(rows+6, 30), max(cols+2, 100)))
 
     def exit_program(self):
+        if Utils.is_headless():
+            raise HeadlessExit("Program exit requested")
+
         self.head()
         width = 68
         print("")

@@ -1,0 +1,196 @@
+{
+    "Motherboard": {
+        "Name": "Z490 AORUS ELITE",
+        "Chipset": "Z490",
+        "Platform": "Desktop"
+    },
+    "BIOS": {
+        "Version": "F21",
+        "Release Date": "2023-05-10",
+        "System Type": "x64-based",
+        "Firmware Type": "UEFI",
+        "Secure Boot": "Disabled"
+    },
+    "CPU": {
+        "Manufacturer": "Intel",
+        "Processor Name": "Intel(R) Core(TM) i5-10400 CPU @ 2.90GHz",
+        "Codename": "Comet Lake-S",
+        "Core Count": "06",
+        "CPU Count": "01",
+        "SIMD Features": "SSE, SSE2, SSE3, SSSE3, SSE4.1, SSE4.2, AVX, AVX2"
+    },
+    "GPU": {
+        "Intel UHD Graphics 630": {
+            "Manufacturer": "Intel",
+            "Codename": "Comet Lake",
+            "Device ID": "8086-9BC8",
+            "Device Type": "Integrated GPU",
+            "Subsystem ID": "D0001458",
+            "PCI Path": "PciRoot(0x0)/Pci(0x2,0x0)",
+            "ACPI Path": "\\_SB.PCI0.GFX0",
+            "Resizable BAR": "Disabled"
+        }
+    },
+    "Monitor": {
+        "Generic PnP Monitor": {
+            "Connector Type": "HDMI",
+            "Resolution": "1920x1080",
+            "Connected GPU": "Intel UHD Graphics 630"
+        }
+    },
+    "Network": {
+        "Intel(R) Ethernet Connection (11) I219-V": {
+            "Bus Type": "PCI",
+            "Device ID": "8086-0D4D",
+            "Subsystem ID": "E0001458",
+            "PCI Path": "PciRoot(0x0)/Pci(0x1f,0x6)",
+            "ACPI Path": "\\_SB.PCI0.GLAN"
+        }
+    },
+    "Sound": {
+        "Realtek High Definition Audio": {
+            "Bus Type": "HDAUDIO",
+            "Device ID": "10EC-1220",
+            "Subsystem ID": "1458A0C3",
+            "Audio Endpoints": [
+                "Speakers",
+                "Realtek Digital Output"
+            ],
+            "Controller Device ID": "8086-A3F0"
+        }
+    },
+    "USB Controllers": {
+        "Intel(R) USB 3.1 eXtensible Host Controller - 1.10 (Microsoft)": {
+            "Bus Type": "PCI",
+            "Device ID": "8086-A3AF",
+            "Subsystem ID": "50071458",
+            "PCI Path": "PciRoot(0x0)/Pci(0x14,0x0)",
+            "ACPI Path": "\\_SB.PCI0.XHC_"
+        }
+    },
+    "Input": {
+        "USB Input Device": {
+            "Bus Type": "USB",
+            "Device ID": "046D-C52B"
+        },
+        "USB Input Device_#1": {
+            "Bus Type": "USB",
+            "Device ID": "046D-C077"
+        }
+    },
+    "Storage Controllers": {
+        "Standard NVM Express Controller": {
+            "Bus Type": "PCI",
+            "Device ID": "144D-A808",
+            "Subsystem ID": "A801144D",
+            "PCI Path": "PciRoot(0x0)/Pci(0x1b,0x0)/Pci(0x0,0x0)",
+            "ACPI Path": "\\_SB.PCI0.RP21.PXSX",
+            "Disk Drives": [
+                "Samsung SSD 970 EVO Plus 500GB"
+            ]
+        },
+        "Standard SATA AHCI Controller": {
+            "Bus Type": "PCI",
+            "Device ID": "8086-06D2",
+            "Subsystem ID": "B0051458",
+            "PCI Path": "PciRoot(0x0)/Pci(0x17,0x0)",
+            "ACPI Path": "\\_SB.PCI0.SAT0",
+            "Disk Drives": [
+                "ST2000DM008-2FR102"
+            ]
+        }
+    },
+    "System Devices": {
+        "PCI standard host CPU bridge": {
+            "Bus Type": "PCI",
+            "Device ID": "8086-9B53",
+            "Subsystem ID": "50001458",
+            "PCI Path": "PciRoot(0x0)/Pci(0x0,0x0)",
+            "ACPI Path": "\\_SB.PCI0"
+        },
+        "PCI Express Root Complex": {
+            "Bus Type": "ACPI",
+            "Device": "PNP0A08",
+            "ACPI Path": "\\_SB.PCI0"
+        },
+        "Intel(R) Z490 LPC Controller - 0685": {
+            "Bus Type": "PCI",
+            "Device ID": "8086-0685",
+            "Subsystem ID": "50011458",
+            "PCI Path": "PciRoot(0x0)/Pci(0x1f,0x0)",
+            "ACPI Path": "\\_SB.PCI0.LPCB"
+        },
+        "Intel(R) SMBus - 06A3": {
+            "Bus Type": "PCI",
+            "Device ID": "8086-06A3",
+            "Subsystem ID": "50011458",
+            "PCI Path": "PciRoot(0x0)/Pci(0x1f,0x4)",
+            "ACPI Path": "\\_SB.PCI0.SBUS"
+        },
+        "Intel(R) Management Engine Interface #1": {
+            "Bus Type": "PCI",
+            "Device ID": "8086-06E0",
+            "Subsystem ID": "1C3A1458",
+            "PCI Path": "PciRoot(0x0)/Pci(0x16,0x0)",
+            "ACPI Path": "\\_SB.PCI0.HECI"
+        },
+        "High Definition Audio Controller": {
+            "Bus Type": "PCI",
+            "Device ID": "8086-A3F0",
+            "Subsystem ID": "A0C31458",
+            "PCI Path": "PciRoot(0x0)/Pci(0x1f,0x3)",
+            "ACPI Path": "\\_SB.PCI0.HDAS"
+        },
+        "PCI Express Root Port": {
+            "Bus Type": "PCI",
+            "Device ID": "8086-06AC",
+            "Subsystem ID": "50011458",
+            "PCI Path": "PciRoot(0x0)/Pci(0x1b,0x0)",
+            "ACPI Path": "\\_SB.PCI0.RP21"
+        },
+        "PCI standard RAM Controller": {
+            "Bus Type": "PCI",
+            "Device ID": "8086-06EF",
+            "Subsystem ID": "50011458",
+            "PCI Path": "PciRoot(0x0)/Pci(0x14,0x2)"
+        },
+        "Motherboard resources": {
+            "Bus Type": "ACPI",
+            "Device": "PNP0C02",
+            "ACPI Path": "\\_SB.PCI0.LPCB.LDRC"
+        },
+        "System CMOS/real time clock": {
+            "Bus Type": "ACPI",
+            "Device": "PNP0B00",
+            "ACPI Path": "\\_SB.PCI0.LPCB.RTC_"
+        },
+        "High precision event timer": {
+            "Bus Type": "ACPI",
+            "Device": "PNP0103",
+            "ACPI Path": "\\_SB.PCI0.LPCB.HPET"
+        },
+        "System timer": {
+            "Bus Type": "ACPI",
+            "Device": "PNP0100",
+            "ACPI Path": "\\_SB.PCI0.LPCB.TIMR"
+        },
+        "Programmable interrupt controller": {
+            "Bus Type": "ACPI",
+            "Device": "PNP0000",
+            "ACPI Path": "\\_SB.PCI0.LPCB.PIC_"
+        },
+        "ACPI Power Button": {
+            "Bus Type": "ACPI",
+            "Device": "PNP0C0C",
+            "ACPI Path": "\\_SB.PWRB"
+        },
+        "Microsoft ACPI-Compliant System": {
+            "Bus Type": "ACPI_HAL",
+            "Device": "PNP0C08"
+        },
+        "Microsoft UEFI-Compliant System": {
+            "Bus Type": "ACPI_HAL",
+            "Device": "UEFI"
+        }
+    }
+}

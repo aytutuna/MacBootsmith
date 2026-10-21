@@ -18,6 +18,7 @@ import updater
 import os
 import sys
 import re
+import json
 import shutil
 import traceback
 import time
@@ -41,6 +42,36 @@ class OCPE:
         self.r = run.Run()
         self.result_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Results")
 
+    def export_hardware_report(self):
+        hardware_sniffer = self.o.gather_hardware_sniffer()
+
+        if not hardware_sniffer:
+            return None, None, None
+
+        report_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "SysReport")
+
+        self.u.head("Exporting Hardware Report")
+        print("")
+        print("Exporting hardware report to {}...".format(report_dir))
+
+        output = self.r.run({
+            "args":[hardware_sniffer, "-e", "-o", report_dir]
+        })
+
+        if output[-1] != 0:
+            error_code = output[-1]
+            if error_code == 3:
+                error_message = "Error collecting hardware."
+            elif error_code == 4:
+                error_message = "Error generating hardware report."
+            elif error_code == 5:
+                error_message = "Error dumping ACPI tables."
+            else:
+                error_message = "Unknown error."
+            return None, None, error_message
+
+        return os.path.join(report_dir, "Report.json"), os.path.join(report_dir, "ACPI"), None
+
     def select_hardware_report(self):
         self.ac.dsdt = self.ac.acpi.acpi_tables = None
 
@@ -61,46 +92,23 @@ class OCPE:
             if user_input.lower() == "q":
                 self.u.exit_program()
             if user_input.lower() == "e":
-                hardware_sniffer = self.o.gather_hardware_sniffer()
+                report_path, acpitables_dir, error_message = self.export_hardware_report()
 
-                if not hardware_sniffer:
-                    continue
-
-                report_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "SysReport")
-
-                self.u.head("Exporting Hardware Report")
-                print("")
-                print("Exporting hardware report to {}...".format(report_dir))
-                
-                output = self.r.run({
-                    "args":[hardware_sniffer, "-e", "-o", report_dir]
-                })
-
-                if output[-1] != 0:
-                    error_code = output[-1]
-                    if error_code == 3:
-                        error_message = "Error collecting hardware."
-                    elif error_code == 4:
-                        error_message = "Error generating hardware report."
-                    elif error_code == 5:
-                        error_message = "Error dumping ACPI tables."
-                    else:
-                        error_message = "Unknown error."
-
+                if error_message:
                     print("")
                     print("Could not export the hardware report. {}".format(error_message))
                     print("Please try again or using Hardware Sniffer manually.")
                     print("")
                     self.u.request_input()
                     continue
-                else:
-                    report_path = os.path.join(report_dir, "Report.json")
-                    acpitables_dir = os.path.join(report_dir, "ACPI")
 
-                    report_data = self.u.read_file(report_path)
-                    self.ac.read_acpi_tables(acpitables_dir)
-                    
-                    return report_path, report_data
+                if not report_path:
+                    continue
+
+                report_data = self.u.read_file(report_path)
+                self.ac.read_acpi_tables(acpitables_dir)
+
+                return report_path, report_data
                 
             path = self.u.normalize_path(user_input)
             
@@ -341,6 +349,7 @@ class OCPE:
 
         print("OpenCore EFI build complete.")
         time.sleep(2)
+        return is_valid
         
     def check_bios_requirements(self, org_hardware_report, hardware_report):
         disable = []
@@ -412,6 +421,125 @@ class OCPE:
         print("")
         self.u.request_input()
         self.u.open_folder(self.result_dir)
+
+    def resolve_headless_path(self, path):
+        path = os.path.expanduser(str(path))
+        if not os.path.isabs(path):
+            path = os.path.join(os.path.dirname(os.path.realpath(__file__)), path)
+        return os.path.normpath(path)
+
+    def resolve_headless_macos_version(self, value):
+        value = str(value).strip()
+        if re.match(r'^\d+(?:\.\d+){0,2}$', value):
+            return value
+
+        name = value.lower()
+        if name.startswith("macos"):
+            name = name[len("macos"):].strip()
+        for data in os_data.macos_versions:
+            if name in (data.name.lower(), "{} {}".format(data.name, data.macos_version).lower()):
+                return str(data.darwin_version)
+
+        raise Exception("Unknown macOS version '{}'.".format(value))
+
+    def print_headless_summary(self, exit_code, smbios_model=None, validation_status="not run"):
+        print("")
+        print("Headless build result: exit={} folder={} smbios={} ocvalidate={}".format(exit_code, self.result_dir, smbios_model or "none", validation_status))
+        return exit_code
+
+    def run_headless(self, answers):
+        macos_answer = self.resolve_headless_macos_version(answers.get("macos_version", ""))
+        prompts = {"Please enter the macOS version": macos_answer}
+        for key, value in (answers.get("prompts") or {}).items():
+            if key.lower() != "please enter the macos version":
+                prompts[key] = value
+        answers["prompts"] = prompts
+        self.u.set_headless(answers)
+
+        self.ac.dsdt = self.ac.acpi.acpi_tables = None
+
+        report = answers.get("report")
+        acpi_path = answers.get("acpi")
+        if not report:
+            raise Exception("The answers file does not name a hardware report.")
+
+        if str(report).lower() == "sniff":
+            report_path, acpitables_dir, error_message = self.export_hardware_report()
+            if error_message or not report_path:
+                raise Exception("Could not export the hardware report. {}".format(error_message or "Hardware Sniffer is only available on Windows."))
+            if not acpi_path and os.path.isdir(acpitables_dir):
+                acpi_path = acpitables_dir
+        else:
+            report_path = self.resolve_headless_path(report)
+
+        is_valid, errors, warnings, hardware_report = self.v.validate_report(report_path)
+        self.v.show_validation_report(report_path, is_valid, errors, warnings)
+        if not is_valid or errors:
+            raise Exception("Hardware report {} failed validation.".format(report_path))
+
+        if acpi_path:
+            acpi_path = self.resolve_headless_path(acpi_path)
+            self.ac.read_acpi_tables(acpi_path)
+            if not self.ac._ensure_dsdt():
+                raise Exception("Could not load a DSDT from {}.".format(acpi_path))
+        else:
+            self.ac.skip_acpi_tables = True
+
+        try:
+            hardware_report, native_macos_version, ocl_patched_macos_version = self.c.check_compatibility(hardware_report)
+        except utils.HeadlessExit:
+            print("")
+            print("The hardware is not compatible with macOS.")
+            return self.print_headless_summary(3)
+
+        version_match = re.match(r'^(\d+)(?:\.(\d+)(?:\.(\d+))?)?$', macos_answer)
+        target_version = self.u.parse_darwin_version("{}.{}.{}".format(version_match.group(1), version_match.group(2) or 99, version_match.group(3) or 99))
+        in_native = self.u.parse_darwin_version(native_macos_version[0]) <= target_version <= self.u.parse_darwin_version(native_macos_version[-1])
+        in_oclp = bool(ocl_patched_macos_version) and self.u.parse_darwin_version(ocl_patched_macos_version[-1]) <= target_version <= self.u.parse_darwin_version(ocl_patched_macos_version[0])
+        if not in_native and not in_oclp:
+            print("")
+            print("macOS {} is outside the supported range for this hardware (native {} to {}{}).".format(
+                macos_answer, native_macos_version[0], native_macos_version[-1],
+                ", OCLP {} to {}".format(ocl_patched_macos_version[-1], ocl_patched_macos_version[0]) if ocl_patched_macos_version else ""))
+            return self.print_headless_summary(3)
+
+        macos_version = self.select_macos_version(hardware_report, native_macos_version, ocl_patched_macos_version)
+        customized_hardware, disabled_devices, needs_oclp = self.h.hardware_customization(hardware_report, macos_version)
+        smbios_model = self.s.select_smbios_model(customized_hardware, macos_version)
+        self.ac.ensure_dsdt()
+        self.ac.select_acpi_patches(customized_hardware, disabled_devices)
+        needs_oclp = self.k.select_required_kexts(customized_hardware, macos_version, needs_oclp, self.ac.patches)
+        self.s.smbios_specific_options(customized_hardware, smbios_model, macos_version, self.ac.patches, self.k)
+
+        if needs_oclp and not self.show_oclp_warning(macos_version):
+            print("")
+            print("{} needs OpenCore Legacy Patcher on this hardware and it was declined.".format(os_data.get_macos_name_by_darwin(macos_version)))
+            return self.print_headless_summary(3, smbios_model)
+
+        if not self.o.gather_bootloader_kexts(self.k.kexts, macos_version):
+            raise Exception("Could not gather OpenCorePkg and kexts.")
+
+        is_valid = self.build_opencore_efi(customized_hardware, disabled_devices, smbios_model, macos_version, needs_oclp)
+
+        config_file = os.path.join(self.result_dir, "EFI", "OC", "config.plist")
+        if not os.path.exists(config_file):
+            raise Exception("The build did not produce {}.".format(config_file))
+
+        bios_requirements = self.check_bios_requirements(hardware_report, customized_hardware)
+        print("")
+        print("BIOS/UEFI settings:")
+        for title, field in (("Disable", "disable"), ("Enable", "enable"), ("Notes", "notes")):
+            for item in bios_requirements[field]:
+                print("    {}: {}".format(title, item))
+
+        if not answers.get("skip_recovery", True):
+            print("")
+            if not self.rf.download(macos_version, self.result_dir):
+                raise Exception("macOS recovery download failed.")
+
+        if is_valid is True:
+            return self.print_headless_summary(0, smbios_model, "passed")
+        return self.print_headless_summary(2, smbios_model, "errors" if is_valid is False else "unavailable")
 
     def main(self):
         hardware_report_path = None
@@ -553,7 +681,31 @@ class OCPE:
                 print("")
                 self.u.request_input("Press Enter to main menu...")
 
+def run_headless(answers_path):
+    if hasattr(sys.stdout, "reconfigure") and not sys.stdout.isatty():
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+
+    try:
+        with open(answers_path, "r", encoding="utf-8") as answers_file:
+            answers = json.load(answers_file)
+        utils.Utils.set_headless(answers)
+        return OCPE().run_headless(answers)
+    except (Exception, utils.HeadlessExit, utils.HeadlessPromptLoop):
+        print("")
+        print(traceback.format_exc())
+        print("Headless build result: exit=1")
+        return 1
+    finally:
+        utils.Utils.set_headless(None)
+
 if __name__ == '__main__':
+    if "--headless" in sys.argv:
+        headless_index = sys.argv.index("--headless")
+        if headless_index + 1 >= len(sys.argv):
+            print("Usage: python OpCore-Simplify.py --headless <answers.json>")
+            sys.exit(1)
+        sys.exit(run_headless(sys.argv[headless_index + 1]))
+
     if "--update" in sys.argv:
         update_flag = updater.Updater().run_update()
         if update_flag:

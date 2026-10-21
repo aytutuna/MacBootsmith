@@ -28,6 +28,7 @@ class ACPIGuru:
         self.acpi_directory = None
         self.smbios_model = None
         self.dsdt = None
+        self.skip_acpi_tables = False
         self.lpc_bus_device = None
         self.osi_strings = {
             "Windows 2000": "Windows 2000",
@@ -292,6 +293,9 @@ class ACPIGuru:
         if self._ensure_dsdt(allow_any=allow_any):
             # Got it already
             return True
+        if self.skip_acpi_tables:
+            print("\033[1;93mWarning:\033[0m No ACPI tables loaded. Skipping DSDT-based ACPI patches.")
+            return False
         # Need to prompt
         self.select_acpi_tables()
         self.dsdt = self.acpi.get_dsdt_or_only()

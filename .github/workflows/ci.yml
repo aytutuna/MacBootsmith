@@ -1,0 +1,145 @@
+name: ci
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 1"
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        python: ["3.8", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+
+  build:
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - fixture: desktop
+            answers: tests/fixtures/answers-desktop.json
+            allowed: "0"
+          - fixture: laptop
+            answers: tests/fixtures/answers-laptop.json
+            allowed: "0 3"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Cache key week
+        id: week
+        shell: bash
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            OCK_Files
+            Scripts/macserial*
+            Scripts/ocvalidate*
+          key: ock-${{ hashFiles('.github/workflows/ci.yml') }}-${{ steps.week.outputs.week }}
+          restore-keys: |
+            ock-${{ hashFiles('.github/workflows/ci.yml') }}-
+      - name: Headless build (${{ matrix.fixture }})
+        shell: bash
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          set +e
+          python OpCore-Simplify.py --headless "${{ matrix.answers }}"
+          code=$?
+          echo "headless exit code: $code (allowed: ${{ matrix.allowed }})"
+          case " ${{ matrix.allowed }} " in
+            *" $code "*) ;;
+            *) echo "::error::headless build exited with $code"; exit 1 ;;
+          esac
+          if [ "$code" = "3" ]; then
+            echo "::warning::${{ matrix.fixture }}: hardware reported as incompatible (exit 3, expected for this fixture)"
+          fi
+          echo "build_exit=$code" >> "$GITHUB_ENV"
+      - name: Check ocvalidate result
+        if: env.build_exit == '0'
+        shell: bash
+        run: |
+          # the build job runs on Windows, so the binary is ocvalidate.exe
+          ocv=Scripts/ocvalidate.exe
+          if [ ! -f "$ocv" ]; then
+            echo "::error::$ocv not found"
+            exit 1
+          fi
+          set +e
+          "$ocv" Results/EFI/OC/config.plist
+          rc=$?
+          if [ "$rc" != "0" ]; then
+            echo "::error::${{ matrix.fixture }}: ocvalidate exited with $rc"
+            exit 1
+          fi
+      - name: Upload EFI
+        if: env.build_exit == '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: efi-${{ matrix.fixture }}
+          path: Results/EFI
+          if-no-files-found: error
+
+  boot:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        fixture: [desktop]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: efi-${{ matrix.fixture }}
+          path: efi/EFI
+      - name: Install QEMU and tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 ovmf mtools dosfstools
+      - name: Boot EFI in QEMU
+        run: bash tests/boot/run_qemu.sh efi/EFI
+
+  recovery-download:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Board id
+        id: board
+        shell: bash
+        run: |
+          echo "board=$(python tests/ci/download_recovery.py --macos 26 --print-board)" >> "$GITHUB_OUTPUT"
+          echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/recovery
+          key: recovery-${{ steps.board.outputs.board }}-${{ steps.board.outputs.week }}
+      - name: Download and verify recovery image
+        shell: bash
+        run: python tests/ci/download_recovery.py --macos 26 --dest "${{ runner.temp }}/recovery"
