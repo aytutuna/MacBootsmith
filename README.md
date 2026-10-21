@@ -1,162 +1,96 @@
-<br/>
-<div align="center">
-  <h3 align="center">OpCore Simplify</h3>
+# MacBootsmith
 
-  <p align="center">
-    A specialized tool that streamlines <a href="https://github.com/acidanthera/OpenCorePkg">OpenCore</a> EFI creation by automating the essential setup process and providing standardized configurations. Designed to reduce manual effort while ensuring accuracy in your Hackintosh journey.
-    <br />
-    <br />
-    <a href="#-features">Features</a> •
-    <a href="#-how-to-use">How To Use</a> •
-    <a href="#-contributing">Contributing</a> •
-    <a href="#-license">License</a> •
-    <a href="#-credits">Credits</a> •
-    <a href="#-contact">Contact</a>
-  </p>
-  
-  <p align="center">
-    <a href="https://trendshift.io/repositories/15410" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15410" alt="lzhoang2801%2FOpCore-Simplify | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-  </p>
-</div>
+MacBootsmith is a Windows tool that takes a PC from hardware scan to a bootable OpenCore USB installer for macOS. It is a fork of OpCore-Simplify with the stages that project leaves to the user (validation, recovery download, USB creation, BIOS guidance) added on top.
 
-> [!WARNING]
-> While OpCore Simplify significantly reduces setup time, the Hackintosh journey still requires:
-> - Understanding basic concepts from the [Dortania Guide](https://dortania.github.io/OpenCore-Install-Guide/)
-> - Testing and troubleshooting during the installation process
-> - Patience and persistence in resolving any issues that arise
->
-> Our tool does not guarantee a successful installation in the first attempt, but it should help you get started.
+macOS 26 Tahoe is the last macOS release for Intel hardware, so the supported range is macOS High Sierra through Tahoe.
 
-## ✨ **Features**
+## Status
 
-1. **Comprehensive Hardware and macOS Support**  
-   Fully supports modern hardware. Use `Compatibility Checker` to check supported/unsupported devices and macOS version supported.
+Early development. Every push is tested in CI: unit tests, a headless EFI build against hardware report fixtures, and a QEMU boot of the generated EFI to the OpenCore picker. The maintainers have not yet verified a full install on real hardware, and the USB writer in particular has not been run against a real stick. Expect rough edges and read the prompts carefully.
 
-   | **Component**  | **Supported**                                                                                       |
-   |----------------|-----------------------------------------------------------------------------------------------------|
-   | **CPU**        | Intel: Nehalem and Westmere (1st Gen) → Arrow Lake (15th Gen/Core Ultra Series 2) <br> AMD: Ryzen and Threadripper with [AMD Vanilla](https://github.com/AMD-OSX/AMD_Vanilla) |
-   | **GPU**        | Intel iGPU: Iron Lake (1st Gen) → Ice Lake (10th Gen) <br> AMD APU: The entire Vega Raven ASIC family (Ryzen 1xxx → 5xxx, 7x30 series) <br> AMD dGPU: Navi 23, Navi 22, Navi 21 generations, and older series <br> NVIDIA: Kepler, Pascal, Maxwell, Fermi, Tesla generations |
-   | **macOS**      | macOS High Sierra → macOS Tahoe |
+CI runs: https://github.com/aytutuna/MacBootsmith/actions
 
-2. **ACPI Patches and Kexts**  
-   Automatically detects and adds ACPI patches and kexts based on hardware configuration.
-   
-   - Integrated with [SSDTTime](https://github.com/corpnewt/SSDTTime) for common patches (e.g., FakeEC, FixHPET, PLUG, RTCAWAC).
-   - Includes custom patches:
-      - Prevent kernel panics by directing the first CPU entry to an active CPU, disabling the UNC0 device, and creating a new RTC device for HEDT systems.
-      - Disable unsupported or unused PCI devices, such as the GPU (using Optimus and Bumblebee methods or adding the disable-gpu property), Wi-Fi card, and NVMe storage controller.
-      - Fix sleep state values in _PRW methods (GPRW, UPRW, HP special) to prevent immediate wake.
-      - Add devices including ALS0, BUS0, MCHC, PMCR, PNLF, RMNE, IMEI, USBX, XOSI, along with a Surface Patch.
-      - Enable ALSD and GPI0 devices.
+## What it does
 
-3. **Automatic Updates**  
-    Automatically checks for and updates OpenCorePkg and kexts from [Dortania Builds](https://dortania.github.io/builds/) and GitHub releases before each EFI build.
-            
-4. **EFI Configuration**  
-   Apply additional customization based on both widely used sources and personal experience.
+1. Hardware scan with Hardware Sniffer, producing a hardware report.
+2. Compatibility verdict: which macOS versions each device supports, and which need OpenCore Legacy Patcher.
+3. EFI build using the OpCore-Simplify engine (ACPI patches, kexts, SMBIOS, config.plist).
+4. Config validation of the built EFI with ocvalidate.
+5. macOS recovery download from Apple's servers using macrecovery.
+6. USB installer creation with diskpart: FAT32 partition, EFI and recovery copied and verified with SHA-256. Only USB-bus disks are offered, and you must confirm the erase.
+7. BIOS checklist for the detected platform: the firmware settings to disable and enable before booting the installer.
 
-   - Spoof GPU IDs for certain AMD GPUs not recognized in macOS.
-   - Use CpuTopologyRebuild kext for Intel CPUs with P-cores and E-cores to enhance performance.
-   - Disable System Integrity Protection (SIP).
-   - Spoof CPU IDs for Intel Pentium, Celeron, Core, and Xeon processors.
-   - Add custom CPU names for AMD CPUs, as well as Intel Pentium, Celeron, Xeon, and Core lines from the Rocket Lake (11th) generation and newer.
-   - Add a patch to allow booting macOS with unsupported SMBIOS.
-   - Add NVRAM entries to bypass checking the internal Bluetooth controller.
-   - Properly configure ResizeAppleGpuBars based on specific Resizable BAR information.
-   - Allow flexible iGPU configuration between headless and driving a display when a supported discrete GPU is present.
-   - Force Intel GPUs into VESA mode with HDMI and DVI connectors to simplify installation process.
-   - Provide configuration required for using OpenCore Legacy Patcher.
-   - Add built-in device property for network devices (fix 'Could not communicate with the server' when using iServices) and storage controllers (fix internal drives shown as external).
-   - Prioritize SMBIOS optimized for both power management and performance.
-   - Re-enable CPU power management on legacy Intel CPUs in macOS Ventura 13 and newer.
-   - Apply WiFi profiles for itlwm kext to enable auto WiFi connections at boot time.
+Planned, not implemented yet: USB port mapping, a post-install kit on the USB drive, and a graphical interface. See `docs/reference/gaps.md` for the ranked list.
 
-   and more...
+## What it does not do
 
-5. **Easy Customization**  
-   In addition to the default settings applied, users can easily make further customizations if desired.
+- Install macOS for you. You still boot the USB, partition the target disk and run the installer.
+- Bypass hardware limits. Common blockers: Intel 11th generation and newer integrated graphics, modern NVIDIA GPUs, AMD RX 7000 series and newer, and most Intel laptop Wi-Fi cards without extra work (Broadcom or a supported replacement is the usual answer).
+- Fix Apple account services (iMessage, FaceTime, iCloud) beyond generating the SMBIOS values they need.
+- Make running macOS on non-Apple hardware licence-compliant. That is your responsibility (see Legal).
 
-   - Custom ACPI patches, kexts, and SMBIOS adjustments (**not recommended**).
-   - Force load kexts on unsupported macOS versions.
+## Requirements
 
-## 🚀 **How To Use**
+- Windows 10 or 11.
+- Python 3.8 or newer. The `.bat` launcher offers to install it if missing.
+- Administrator rights for the USB step.
+- A USB drive of 4 GB or more. Its contents will be erased.
+- An internet connection. OpenCore, kexts and the recovery image are downloaded at run time; nothing from Apple is bundled.
 
-1. **Download OpCore Simplify**:
-   - Click **Code** → **Download ZIP**, or download directly via this [link](https://github.com/lzhoang2801/OpCore-Simplify/archive/refs/heads/main.zip).  
-   - Extract the downloaded ZIP file to your desired location.
+## How to use
 
-   ![Download OpCore Simplify](https://i.imgur.com/mcE7OSX.png)
+Run `OpCore-Simplify.bat` as administrator. The main menu offers:
 
-2. **Running OpCore Simplify**:
-   - On **Windows**, run `OpCore-Simplify.bat`.
-   - On **macOS**, run `OpCore-Simplify.command`.
-   - On **Linux**, run `OpCore-Simplify.py` with existing Python interpreter.
+1. Select Hardware Report: scan this PC or load an existing report, then check compatibility.
+2. Select macOS Version: choose the target release.
+3. Customize ACPI Patch: review or change the ACPI patches.
+4. Customize Kexts: review or change the kext selection.
+5. Customize SMBIOS Model: pick the Mac model to present.
+6. Build OpenCore EFI: write the EFI and run ocvalidate on it.
+7. Download macOS Recovery: fetch the recovery image for the chosen release.
+8. Create USB Installer: format a USB drive and write the installer, or copy only the EFI to an existing drive.
 
-   ![OpCore Simplify Menu](https://i.imgur.com/vTr1V9D.png)
+Then boot from the USB and work through the on-screen BIOS checklist.
 
-3. **Selecting hardware report**:
-   - On Windows, there will be an option for `E. Export hardware report`. It's recommended to use this for the best results with your hardware configuration and BIOS at the time of building.
-   - Alternatively, use [**Hardware Sniffer**](https://github.com/lzhoang2801/Hardware-Sniffer) to create a `Report.json` and ACPI dump for configuration manully.
+Headless mode builds an EFI without prompts, from a JSON answers file (used by CI and for scripting):
 
-   ![Selecting hardware report](https://i.imgur.com/MbRmIGJ.png)
+```
+python OpCore-Simplify.py --headless <answers.json>
+```
 
-   ![Loading ACPI Tables](https://i.imgur.com/SbL6N6v.png)
+## Development
 
-   ![Compatibility Checker](https://i.imgur.com/kuDGMmp.png)
+Run the tests:
 
-4. **Selecting macOS Version and Customizing OpenCore EFI**:
-   - By default, the latest compatible macOS version will be selected for your hardware.
-   - OpCore Simplify will automatically apply essential ACPI patches and kexts. 
-   - You can manually review and customize these settings as needed.
+```
+python -m unittest discover -s tests
+```
 
-   ![OpCore Simplify Menu](https://i.imgur.com/TSk9ejy.png)
+The CI workflow (`.github/workflows/ci.yml`) has four jobs:
 
-5. **Building OpenCore EFI**:
-   - Once you've customized all options, select **Build OpenCore EFI** to generate your EFI.
-   - The tool will automatically download the necessary bootloader and kexts, which may take a few minutes.
+- test: the unit tests.
+- build: headless EFI build per hardware report fixture, with an ocvalidate check; the EFI is uploaded as an artifact.
+- boot: boots the built EFI in QEMU and checks that the OpenCore picker appears.
+- recovery-download: downloads and verifies a macOS 26 recovery image.
 
-   ![WiFi Profile Extractor](https://i.imgur.com/71TkJkD.png)
+Design notes live in `docs/reference/` (BIOS settings, install flow, post-install, OCLP, Tahoe, gaps, external links).
 
-   ![Choosing Codec Layout ID](https://i.imgur.com/Mcm20EQ.png)
+Contributions are welcome. The rule that matters: nothing from Apple is ever committed to this repository, whether binaries, images or logos.
 
-   ![Building OpenCore EFI](https://i.imgur.com/deyj5de.png)
+## Legal
 
-6. **USB Mapping**:
-   - After building your EFI, follow the steps for mapping USB ports.
+No Apple software is included. The recovery image is downloaded by you, from Apple's servers. macOS's licence restricts installation to Apple-branded hardware, and you are responsible for your own compliance. This project is not affiliated with Apple or with the authors of the tools it builds on.
 
-   ![Results](https://i.imgur.com/MIPigPF.png)
+## Credits
 
-7. **Create USB and Install macOS**: 
-   - Use [**UnPlugged**](https://github.com/corpnewt/UnPlugged) on Windows to create a USB macOS installer, or follow [this guide](https://dortania.github.io/OpenCore-Install-Guide/installer-guide/mac-install.html) for macOS.
-   - For troubleshooting, refer to the [OpenCore Troubleshooting Guide](https://dortania.github.io/OpenCore-Install-Guide/troubleshooting/troubleshooting.html).
+- [OpCore-Simplify](https://github.com/lzhoang2801/OpCore-Simplify) by lzhoang2801: the engine this project forks.
+- [OpenCorePkg and macrecovery](https://github.com/acidanthera/OpenCorePkg) by Acidanthera: bootloader, ocvalidate, macserial, recovery download.
+- Hardware Sniffer by lzhoang2801: hardware scan (https://github.com/lzhoang2801/Hardware-Sniffer).
+- [USBToolBox](https://github.com/USBToolBox/tool): USB mapping tooling and kext.
+- [SSDTTime](https://github.com/corpnewt/SSDTTime) and [ProperTree](https://github.com/corpnewt/ProperTree) by corpnewt.
+- [Dortania guides](https://dortania.github.io/OpenCore-Install-Guide/): the reference for OpenCore setup.
+- [OpenCore Legacy Patcher](https://github.com/dortania/OpenCore-Legacy-Patcher): root patching for unsupported hardware.
 
-> [!NOTE]
-> 1. After a successful installation, if OpenCore Legacy Patcher is required, simply apply root patches to activate the missing features (such as modern Broadcom Wi-Fi card and graphics acceleration).
-> 
-> 2. For AMD GPUs, after applying root patches from OpenCore Legacy Patcher, you need to remove the boot argument `-radvesa`/`-amd_no_dgpu_accel` for graphics acceleration to work.
+## License
 
-## 🤝 **Contributing**
-
-Contributions are **highly appreciated**! If you have ideas to improve this project, feel free to fork the repo and create a pull request, or open an issue with the "enhancement" tag.
-
-Don't forget to ⭐ star the project! Thank you for your support! 🌟
-
-## 📜 **License**
-
-Distributed under the BSD 3-Clause License. See `LICENSE` for more information.
-
-## 🙌 **Credits**
-
-- [OpenCorePkg](https://github.com/acidanthera/OpenCorePkg) and [kexts](https://github.com/lzhoang2801/OpCore-Simplify/blob/main/Scripts/datasets/kext_data.py) – The backbone of this project.
-- [SSDTTime](https://github.com/corpnewt/SSDTTime) – SSDT patching utilities.
-
-## 📞 **Contact**
-
-**Hoang Hong Quan**
-> Facebook [@macforce2601](https://facebook.com/macforce2601) &nbsp;&middot;&nbsp;
-> Telegram [@lzhoang2601](https://t.me/lzhoang2601) &nbsp;&middot;&nbsp;
-> Email: lzhoang2601@gmail.com
-
-## 🌟 **Star History**
-
-[![Star History Chart](https://star-history.dera.page/svg?repos=lzhoang2801/OpCore-Simplify&type=Date)](https://star-history.dera.page/#lzhoang2801/OpCore-Simplify&Date)
+BSD-3-Clause, inherited from OpCore-Simplify. The `LICENSE` file keeps the original notice: Copyright (c) 2024, lzhoang2601.
