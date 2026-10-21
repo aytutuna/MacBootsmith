@@ -161,3 +161,7 @@ cython_debug/
 
 *.DS_Store
 OCK_Files
+# Runtime output
+Results/
+SysReport/
+sha_version.txt

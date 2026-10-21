@@ -458,9 +458,10 @@ class OCPE:
                 self.u.request_input("Press Enter to main menu...")
 
 if __name__ == '__main__':
-    update_flag = updater.Updater().run_update()
-    if update_flag:
-        os.execv(sys.executable, ['python3'] + sys.argv)
+    if "--update" in sys.argv:
+        update_flag = updater.Updater().run_update()
+        if update_flag:
+            os.execv(sys.executable, ['python3'] + sys.argv)
 
     o = OCPE()
     while True:
