@@ -5,16 +5,33 @@ from Scripts.datasets import kext_data
 from Scripts.datasets import os_data
 from Scripts.datasets import pci_data
 from Scripts.datasets import codec_layouts
+from Scripts.datasets import vendor_quirks
 from Scripts import gathering_files
 from Scripts import smbios
 from Scripts import utils
+import os
 import random
+import re
+
+bcmc_firmwares = {
+    "14E4-43A3": ("brcmfmac4350-pcie_7.35.180.119.bin", "5691d1e0ceb70baf18efb7a0ec6cb84feb9edd2d0700c525b42930c4e7e4b845", "40000000"),
+    "14E4-43BA": ("brcmfmac43602-pcie_7.35.177.61.bin", "bf4cfc23ee952a3d82ef33a0f5f87853201c98f1bed034876a910f354f37862d", "00000000")
+}
+bcmc_firmware_dir = "/usr/local/share/firmware/wifi/"
+cfg_lock_note = "CFG Lock: in the boot picker press Space to show hidden entries and run ControlMsrE2. If it reports UNLOCKED, the AppleXcpmCfgLock/AppleCpuPmCfgLock quirks can be turned off later; if LOCKED, leave them on."
+vendor_quirk_fields = {
+    "motherboard": ("Motherboard", "Name"),
+    "chipset": ("Motherboard", "Chipset"),
+    "bios_vendor": ("BIOS", "Vendor"),
+    "cpu": ("CPU", "Processor Name")
+}
 
 class ConfigProdigy:
     def __init__(self):
         self.g = gathering_files.gatheringFiles()
         self.smbios = smbios.SMBIOS()
         self.utils = utils.Utils()
+        self.bios_notes = []
         self.cpuids = {
             "Ivy Bridge": "A9060300",
             "Haswell": "C3060300",
@@ -397,12 +414,23 @@ class ConfigProdigy:
                 if isinstance(value_child, str):
                     deviceproperties_add[key][key_child] = self.utils.hex_to_bytes(deviceproperties_add[key][key_child])
 
+        if kexts[kext_data.kext_index_by_name.get("AppleBCMWLANCompanion")].checked:
+            for network_name, network_props in hardware_report.get("Network", {}).items():
+                firmware = bcmc_firmwares.get(network_props.get("Device ID"))
+                if not firmware or not network_props.get("PCI Path"):
+                    continue
+                add_device_property(network_props.get("PCI Path"), {
+                    "bcmc-firmware-path": bcmc_firmware_dir + firmware[0],
+                    "bcmc-firmware-hash": self.utils.hex_to_bytes(firmware[1]),
+                    "bcmc-srom-slide": self.utils.hex_to_bytes(firmware[2])
+                })
+
         return deviceproperties_add
 
     def block_kext_bundle(self, kexts):
         kernel_block = []
 
-        if kexts[kext_data.kext_index_by_name.get("IOSkywalkFamily")].checked:
+        if kexts[kext_data.kext_index_by_name.get("IOSkywalkFamily")].checked and not kexts[kext_data.kext_index_by_name.get("AppleBCMWLANCompanion")].checked:
             kernel_block.append({
                 "Arch": "x86_64",
                 "Comment": "Allow IOSkywalk Downgrade",
@@ -574,9 +602,128 @@ class ConfigProdigy:
                 boot_args.append("-vi2c-force-polling")
             elif kext.name == "CpuTopologyRebuild":
                 boot_args.append("ctrsmt=full")
+            elif kext.name == "AppleBCMWLANCompanion":
+                boot_args.append("wlan.pcie.detectsabotage=0")
+
+        if self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version("25.0.0") and \
+            any(kexts[kext_data.kext_index_by_name.get(name)].checked for name in ("IntelBluetoothFirmware", "IntelBTPatcher")):
+            boot_args.append("-ibtcompatbeta")
 
         return " ".join(boot_args)
+
+    def disable_io_mapper(self, hardware_report, kexts):
+        if "AMD" in hardware_report.get("CPU").get("Manufacturer"):
+            return False
+        return not kexts[kext_data.kext_index_by_name.get("AppleBCMWLANCompanion")].checked
+
+    def agdp_pikera_patch(self):
+        return {
+            "Arch": "Any",
+            "Base": "",
+            "Comment": "AGDP board-id patch (pikera) for first boot without WhateverGreen",
+            "Count": 1,
+            "Enabled": True,
+            "Find": self.utils.hex_to_bytes("626F6172642D696400"),
+            "Identifier": "com.apple.driver.AppleGraphicsDevicePolicy",
+            "Limit": 0,
+            "Mask": self.utils.hex_to_bytes(""),
+            "MaxKernel": "",
+            "MinKernel": "25.0.0",
+            "Replace": self.utils.hex_to_bytes("626F6172642D697800"),
+            "ReplaceMask": self.utils.hex_to_bytes(""),
+            "Skip": 0
+        }
+
+    def disable_whatevergreen_for_first_boot(self, config):
+        entries = [entry for entry in config["Kernel"]["Add"] if entry.get("BundlePath", "").split("/")[-1] == "WhateverGreen.kext"]
+        if not entries:
+            return None
+
+        for entry in entries:
+            entry["Enabled"] = False
+
+        nvram = config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]
+        boot_args = nvram.get("boot-args", "").split()
+        agdp_patch = "agdpmod=pikera" in boot_args
+        if agdp_patch:
+            nvram["boot-args"] = " ".join(arg for arg in boot_args if arg != "agdpmod=pikera")
+            config["Kernel"]["Patch"].append(self.agdp_pikera_patch())
+
+        return {"agdp_patch": agdp_patch}
+
+    def apply_first_boot_options(self, config, whatevergreen_first_boot_off):
+        if not whatevergreen_first_boot_off:
+            return None
+        return self.disable_whatevergreen_for_first_boot(config)
     
+    def cfg_lock_tool(self, config):
+        quirks = config["Kernel"]["Quirks"]
+        if not (quirks.get("AppleCpuPmCfgLock") or quirks.get("AppleXcpmCfgLock")):
+            return None
+        return {
+            "Arguments": "",
+            "Auxiliary": True,
+            "Comment": "Check CFG Lock",
+            "Enabled": True,
+            "Flavour": "Auto",
+            "FullNvramAccess": False,
+            "Name": "ControlMsrE2",
+            "Path": "ControlMsrE2.efi",
+            "RealPath": False,
+            "TextMode": True
+        }
+
+    def match_vendor_rule(self, rule, hardware_report):
+        match = rule.get("match") or {}
+        if not match:
+            return False
+        for field, patterns in match.items():
+            section, key = vendor_quirk_fields[field]
+            value = str((hardware_report.get(section) or {}).get(key) or "")
+            if not value or not any(re.search(pattern, value, re.IGNORECASE) for pattern in patterns):
+                return False
+        return True
+
+    def matching_vendor_rules(self, hardware_report):
+        return [rule for rule in vendor_quirks.rules if self.match_vendor_rule(rule, hardware_report)]
+
+    def set_config_value(self, config, dotted_key, value):
+        node = config
+        parts = dotted_key.split(".")
+        for part in parts[:-1]:
+            node = node.setdefault(part, {})
+        node[parts[-1]] = value
+
+    def apply_vendor_quirks(self, hardware_report, config, acpi_directory=None):
+        notes = []
+        for rule in self.matching_vendor_rules(hardware_report):
+            for dotted_key, value in rule.get("config", {}).items():
+                self.set_config_value(config, dotted_key, value)
+
+            drop_drivers = rule.get("drop_drivers", [])
+            if drop_drivers:
+                config["UEFI"]["Drivers"] = [driver for driver in config["UEFI"]["Drivers"] if driver.get("Path") not in drop_drivers]
+
+            alternative = rule.get("unless_acpi")
+            has_alternative = bool(alternative) and any(entry.get("Path") == alternative and entry.get("Enabled", True) for entry in config["ACPI"]["Add"])
+
+            missing_tables = []
+            for table, source_url in ({} if has_alternative else rule.get("acpi", {})).items():
+                if acpi_directory and os.path.isfile(os.path.join(acpi_directory, table)):
+                    if not any(entry.get("Path") == table for entry in config["ACPI"]["Add"]):
+                        config["ACPI"]["Add"].append({
+                            "Comment": table,
+                            "Enabled": True,
+                            "Path": table
+                        })
+                else:
+                    missing_tables.append("{} is not in the OpenCorePkg package, so this build does not include it: download it from {} into EFI/OC/ACPI and add it to ACPI -> Add.".format(table, source_url))
+
+            for note in (rule.get("unless_notes", []) if has_alternative else rule.get("notes", []) + missing_tables):
+                if note not in notes:
+                    notes.append(note)
+        return notes
+
     def csr_active_config(self, macos_version):
         if self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version("20.0.0"):
             return "030A0000"
@@ -612,7 +759,8 @@ class ConfigProdigy:
         
         return uefi_drivers
 
-    def genarate(self, hardware_report, disabled_devices, smbios_model, macos_version, needs_oclp, kexts, config):
+    def genarate(self, hardware_report, disabled_devices, smbios_model, macos_version, needs_oclp, kexts, config, whatevergreen_first_boot_off=False, acpi_directory=None):
+        self.bios_notes = []
         del config["#WARNING - 1"]
         del config["#WARNING - 2"]
         del config["#WARNING - 3"]
@@ -656,7 +804,7 @@ class ConfigProdigy:
         config["Kernel"]["Quirks"]["AppleXcpmExtraMsrs"] = self.is_intel_hedt_cpu(hardware_report.get("CPU").get("Processor Name"), hardware_report.get("CPU").get("Codename")) and hardware_report.get("CPU").get("Codename") in cpu_data.IntelCPUGenerations[50:]
         config["Kernel"]["Quirks"]["AppleXcpmForceBoost"] = hardware_report.get("CPU").get("Codename") in cpu_data.IntelCPUGenerations[:4]
         config["Kernel"]["Quirks"]["CustomSMBIOSGuid"] = True
-        config["Kernel"]["Quirks"]["DisableIoMapper"] = not "AMD" in hardware_report.get("CPU").get("Manufacturer")
+        config["Kernel"]["Quirks"]["DisableIoMapper"] = self.disable_io_mapper(hardware_report, kexts)
         config["Kernel"]["Quirks"]["DisableRtcChecksum"] = "ASUS" in hardware_report.get("Motherboard").get("Name") or "HP " in hardware_report.get("Motherboard").get("Name")
         config["Kernel"]["Quirks"]["ForceAquantiaEthernet"] = any(network_props.get("Device ID") in pci_data.AquantiaAqtionIDs for network_props in hardware_report.get("Network", {}).values())
         config["Kernel"]["Quirks"]["LapicKernelPanic"] = "HP " in hardware_report.get("Motherboard").get("Name")
@@ -675,6 +823,8 @@ class ConfigProdigy:
         )
 
         config["Misc"]["BlessOverride"] = []
+        config["Misc"]["Boot"]["LauncherOption"] = "Disabled"
+        config["Misc"]["Boot"]["LauncherPath"] = "Default"
         config["Misc"]["Boot"]["PickerMode"] = "Builtin"
         config["Misc"]["Debug"]["AppleDebug"] = config["Misc"]["Debug"]["ApplePanic"] = False
         config["Misc"]["Debug"]["DisableWatchDog"] = True
@@ -684,6 +834,10 @@ class ConfigProdigy:
         config["Misc"]["Security"]["SecureBootModel"] = "Default" if not needs_oclp and self.utils.parse_darwin_version("20.0.0") <= self.utils.parse_darwin_version(macos_version) < self.utils.parse_darwin_version("23.0.0") else "Disabled"
         config["Misc"]["Security"]["Vault"] = "Optional"
         config["Misc"]["Tools"] = []
+        cfg_lock_tool = self.cfg_lock_tool(config)
+        if cfg_lock_tool:
+            config["Misc"]["Tools"].append(cfg_lock_tool)
+            self.bios_notes.append(cfg_lock_note)
 
         del config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["#INFO (prev-lang:kbd)"]
         config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = self.boot_args(hardware_report, macos_version, needs_oclp, kexts, config)
@@ -704,6 +858,7 @@ class ConfigProdigy:
         config["UEFI"]["Quirks"]["EnableVectorAcceleration"] = not hardware_report.get("CPU").get("Codename") in cpu_data.IntelCPUGenerations[:20]
         config["UEFI"]["Quirks"]["IgnoreInvalidFlexRatio"] = hardware_report.get("CPU").get("Codename") in cpu_data.IntelCPUGenerations[50:]
         config["UEFI"]["Quirks"]["ReleaseUsbOwnership"] = True
+        config["UEFI"]["Quirks"]["RequestBootVarRouting"] = True
         config["UEFI"]["Quirks"]["UnblockFsConnect"] = "HP " in hardware_report.get("Motherboard").get("Name")
         config["UEFI"]["ReservedMemory"] = []
 
@@ -743,5 +898,11 @@ class ConfigProdigy:
                 config["NVRAM"]["Add"]["4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102"]["revblock"] = ",".join(revblock)
         
         config["NVRAM"]["Delete"]["4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102"] = list(config["NVRAM"]["Add"]["4D1FDA02-38C7-4A6A-9CC6-4BCCA8B30102"].keys())
+
+        for note in self.apply_vendor_quirks(hardware_report, config, acpi_directory):
+            if note not in self.bios_notes:
+                self.bios_notes.append(note)
+
+        self.whatevergreen_first_boot = self.apply_first_boot_options(config, whatevergreen_first_boot_off)
 
         return config

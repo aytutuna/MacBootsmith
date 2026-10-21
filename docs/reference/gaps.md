@@ -28,19 +28,21 @@ Ranking is by effect on a first successful boot, then on post-install success. P
 - Pipeline: USB map, EFI build.
 - Idea: when the USBToolBox port lands, produce `UTBMap` before the build, cap each controller to 15 and drop the `XhciPortLimit` instruction; for macOS 12+ make mapping a required step before the recovery USB is written.
 
-### 4. CFG Lock is only worked around
+### 4. CFG Lock is only worked around (implemented)
 
 - Guide says: preferred fix is unlocking MSR 0xE2 in firmware; test with the DEBUG log (`OCCPU: EIST CFG Lock 1`) or `ControlMsrE2.efi`; quirks `AppleCpuPmCfgLock` / `AppleXcpmCfgLock` are the fallback; Lenovo may not be unlockable; unlock offsets are per BIOS version and are lost on BIOS reset.
 - Checked: `config_prodigy.py:654-655` always sets one of the two quirks; no search hit for `ControlMsrE2`; no CFG Lock line in the BIOS checklist.
 - Pipeline: BIOS checklist, EFI build (Tools), first boot.
 - Idea: optionally copy `ControlMsrE2.efi` into `EFI/OC/Tools` and `Misc -> Tools`, show "boot this entry and read LOCKED/UNLOCKED" in the checklist, and link to the manual unlock procedure; keep the quirks on until the user confirms UNLOCKED.
+- Implemented 2026-10-21: `config_prodigy.cfg_lock_tool` adds the auxiliary `ControlMsrE2` entry to `Misc -> Tools` whenever `AppleCpuPmCfgLock` or `AppleXcpmCfgLock` is set (the tool cleanup then keeps the file), and `cfg_lock_note` reaches the checklist Notes through `ConfigProdigy.bios_notes` and `check_bios_requirements`. The manual unlock procedure is not linked yet.
 
-### 5. Boot-entry persistence, internal-drive install and multiboot
+### 5. Boot-entry persistence, internal-drive install and multiboot (implemented, copy step still manual)
 
 - Guide says: after install move the EFI to the internal ESP; Windows/Linux may overwrite `EFI/BOOT/BOOTx64.efi`; set `Misc -> Boot -> LauncherOption` `Full` (`Short` on Insyde) with `RequestBootVarRouting`; for Windows on the same drive use `Hideself`; ESP should be 200MB (a 100MB Windows ESP gives "MediaKit reports not enough space"); the ESP must be the first partition for Startup Disk.
 - Checked: no search hit for `LauncherOption`, `Hideself`, `AllowNvramReset`, `HibernateMode`, `RequestBootVarRouting`, `mountvol`, `MountEFI`; `config_prodigy.py` sets `BlessOverride` to an empty list; the other agent's `usb_writer.py` covers writing the USB.
 - Pipeline: EFI build, post-install.
 - Idea: set `LauncherOption` from the firmware vendor, add `AllowNvramReset`, and ship a post-install script that copies the EFI to the internal ESP; the Windows method is not in the sources, so it has to be designed separately (for example mounting the ESP from Windows before the first macOS boot).
+- Implemented 2026-10-21: `config_prodigy.genarate` keeps `LauncherOption` `Disabled` in the generated EFI (a USB test boot must not change the firmware boot order; some firmware, ThinkPads included, handles NVRAM badly), sets `LauncherPath` `Default` and `RequestBootVarRouting`; the post-install note and the Insyde rule in `datasets/vendor_quirks.py` tell the user to set `Full` (`Short` on Insyde, `BIOS.Vendor` filled from Win32_BIOS by `preflight.add_bios_vendor` on export) after copying the EFI to the internal ESP. `AllowNvramReset` no longer exists in OpenCore 1.0.9 (ocvalidate rejects it); NVRAM reset stays available through `ResetNvramEntry.efi`. The build prints the copy-to-internal-ESP reminder (`OCPE.post_install_notes`); the copy itself and `Hideself` are still open.
 
 ### 6. ROM and serial generation ignore the iServices guidance
 
@@ -49,26 +51,29 @@ Ranking is by effect on a first successful boot, then on post-install success. P
 - Pipeline: EFI build (PlatformInfo), post-install.
 - Idea: derive ROM from the scan's primary NIC MAC (or use an Apple OUI), and put the NVRAM test (`sudo nvram myvar="$(date)"`, reboot, `nvram myvar`), `en0` check and cache-clean list into the post-install kit.
 
-### 7. Windows-side safety checks before changing BIOS or disks
+### 7. Windows-side safety checks before changing BIOS or disks (implemented, clock fix open)
 
 - Guide says: disabling TPM loses BitLocker keys; macOS and Windows clocks disagree (fix Windows with the registry or BootCamp utilities); Windows must be UEFI/GPT; Windows ESP is 100MB where macOS expects 200MB; Disk Utility must erase the whole device (Show All Devices).
 - Checked: no search hit for `BitLocker`, `manage-bde`, `RealTimeIsUniversal`; the BIOS checklist never mentions TPM.
 - Pipeline: BIOS checklist, USB write, post-install.
 - Idea: Windows-only preflight that detects BitLocker/Device Encryption, GPT vs MBR and ESP size, and warns before the BIOS step; post-install kit entry for the clock fix.
+- Implemented 2026-10-21: `Scripts/preflight.py` (`Preflight.show`) runs before the BIOS checklist in `before_using_efi` and in headless runs; it reports BitLocker state, system disk partition style, ESP size and a Legacy-firmware warning, and never stops the build. The clock fix is still open.
 
-### 8. Tahoe-specific items only partly covered
+### 8. Tahoe-specific items only partly covered (implemented, verdict block open)
 
 - Guide says: no AppleHDA on macOS 26, `-ibtcompatbeta` for Intel Bluetooth, `AppleBCMWLANCompanion` for Broadcom Wi-Fi (needs VT-d), OTA updates need `revpatch=sbvmm` and `SecureBootModel` Disabled, WhateverGreen breaks AMD connector patching on 26.
 - Checked: covered: AppleHDA note (`kext_maestro.py:159`), `revpatch=sbvmm` and `SecureBootModel` Disabled for Sonoma-and-later (`config_prodigy.py:684`, 716-741), Tahoe Broadcom kext selection (`kext_maestro.py:258`). Not found: `-ibtcompatbeta`, `AppleBCMWLANCompanion`, any WhateverGreen-on-AMD-Tahoe warning, VoodooHDA path.
+- Update 2026-10-21: `-ibtcompatbeta`, the AppleBCMWLANCompanion option (BCM4350/BCM43602, Intel only) and the WhateverGreen-off first boot for AMD GPUs are implemented (see `tahoe.md`). Still open: Tahoe warnings block on the verdict screen, VoodooHDA path.
 - Pipeline: verdict, EFI build.
 - Idea: add a Tahoe warnings block to the verdict screen and add `-ibtcompatbeta` when an Intel Bluetooth device is present and the target is macOS 26.
 
-### 9. Vendor and chipset quirks from the guide not applied
+### 9. Vendor and chipset quirks from the guide not applied (implemented)
 
 - Guide says: Surface needs `UEFI -> Quirks -> DisableSecurityPolicy`; B550/A520 need `SSDT-CPUR.aml` (not on X570 or older, else `cckprng_int_gen` panic); Insyde laptops use `LauncherOption` `Short`; ThinkPad NVRAM reset can brick (update BIOS instead); Gigabyte/ASRock AMD may need `npci` instead of Above 4G; 3990X needs hyper-threading off (64-thread limit); `ExitBootServicesDelay` for FileVault on Aptio IV.
 - Checked: no search hit for `DisableSecurityPolicy`, `CPUR`, `ExitBootServicesDelay`, 64-thread or `cpus=` handling; HP (`UnblockFsConnect`, `LapicKernelPanic`) and Dell (`CustomSMBIOSGuid`) are covered in `config_prodigy.py` lines 658-707.
 - Pipeline: EFI build, BIOS checklist.
 - Idea: add a vendor table keyed from the Motherboard name and chipset, applied in the build and echoed in the checklist.
+- Implemented 2026-10-21: rules in `Scripts/datasets/vendor_quirks.py` (Surface, B550/A520, Insyde, ThinkPad, Threadripper over 64 threads) applied by `config_prodigy.apply_vendor_quirks` and echoed in the checklist Notes. OpenCorePkg 1.0.9 does not ship `SSDT-CPUR.aml`, so B550/A520 builds get a download note instead of the table; when the build already generated `SSDT-PLUG-ALT.aml` (which redefines the processor objects) the note says not to add SSDT-CPUR. ThinkPads lose `ResetNvramEntry.efi` instead of `AllowNvramReset`. Still open: Gigabyte/ASRock `npci`, `ExitBootServicesDelay`.
 
 ### 10. NVRAM failures: no fallback beyond SSDT-PMC
 

@@ -99,6 +99,19 @@ A successful install: installer restarts a couple of times, the progress timer f
 
 Sources: `_ref/dortania-install-guide/installation/installation-process.md`, `troubleshooting/extended/kernel-issues.md` ("Forcing CS_RUNTIME").
 
+### 6a. Re-enable WhateverGreen after a Tahoe install (AMD GPUs)
+
+On macOS 26 with a discrete AMD GPU the app asks "Disable WhateverGreen for the first boot?" (default Yes), because WhateverGreen's connector patching can panic on Tahoe. In that mode `WhateverGreen.kext` stays in `EFI/OC/Kexts`, but its `Kernel -> Add` entry has `Enabled` false. If the build needed `agdpmod=pikera` (Navi cards), that boot-arg is removed and a `Kernel -> Patch` entry named "AGDP board-id patch (pikera) for first boot without WhateverGreen" does the same job (`com.apple.driver.AppleGraphicsDevicePolicy`, `board-id` to `board-ix`, MinKernel 25.0.0).
+
+After macOS is installed and boots from the internal drive:
+
+1. Open `EFI/OC/config.plist` (ProperTree or any plist editor).
+2. Set `Kernel -> Add -> WhateverGreen.kext -> Enabled` to true.
+3. If the AGDP patch entry is present, delete it from `Kernel -> Patch` and add `agdpmod=pikera` back to `NVRAM -> Add -> 7C436110-AB2A-4BBB-A880-FE41995C9F82 -> boot-args`.
+4. Reboot. If it panics, set `Enabled` back to false and boot again; the GPU runs without WhateverGreen until a fixed release is available.
+
+Sources: `docs/reference/tahoe.md` ("WhateverGreen on Tahoe"), `_ref/dortania-install-guide/extras/tahoe.md`.
+
 ## 7. Troubleshooting quick table
 
 Boot stage reference: OpenCore loads (BOOTx64.efi, OpenCore.efi, drivers, ACPI, SMBIOS) then the picker; boot.efi handoff (EndRandomSeed, EXITBS); kernel (kext loading, `[ PCI configurations begin ]`, USB setup, DSMOS, audio, GPU); userspace (installer UI). Read the last verbose line before choosing a fix; use a DEBUG build with `Target` 67 for OpenCore-stage problems.

@@ -28,6 +28,7 @@ class KextMaestro:
         self.ock_files_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "OCK_Files")
         self.kexts = kext_data.kexts
         self.usb_map_replaced_default = False
+        self.whatevergreen_first_boot_off = False
         
     def extract_pci_id(self, kext_path):
         if not os.path.exists(kext_path):
@@ -148,6 +149,74 @@ class KextMaestro:
             return self.check_kext(default_index, macos_version)
         return True
 
+    def select_broadcom_wifi_method(self, network_name, device_id, hardware_report, macos_version):
+        if  not device_id in pci_data.BroadcomFullMACWiFiIDs or \
+            "AMD" in hardware_report.get("CPU").get("Manufacturer") or \
+            not self.is_kext_compatible(self.kexts[kext_data.kext_index_by_name["AppleBCMWLANCompanion"]], macos_version):
+            return "oclp"
+
+        print("\n*** Found {} is Broadcom WiFi device.".format(network_name))
+        print("")
+        print("\033[1;93mNote:\033[0m Broadcom Wi-Fi on macOS Sonoma and later has two available options:")
+        print("")
+        print("1. \033[1mRoot patches via OpenCore Legacy Patcher\033[0m (full support, needs lowered SIP, redo after updates)")
+        print("2. \033[1mAppleBCMWLANCompanion\033[0m (no root patches, requires VT-d enabled in BIOS, not available on AMD, still marked unstable upstream)")
+        print("")
+        recommended_option = 1
+        kext_option = self.utils.request_input("Select Broadcom Wi-Fi option (default: {}): ".format(recommended_option)).strip() or str(recommended_option)
+        if not kext_option in ("1", "2"):
+            print("\033[93mInvalid selection, using recommended option: {}\033[0m".format(recommended_option))
+            kext_option = str(recommended_option)
+        return "companion" if kext_option == "2" else "oclp"
+
+    def hardware_needs_oclp(self, hardware_report, macos_version, excluded_networks=()):
+        for device_type, devices in hardware_report.items():
+            if not isinstance(devices, dict):
+                continue
+            for device_name, device_props in devices.items():
+                if not isinstance(device_props, dict) or not device_props.get("OCLP Compatibility"):
+                    continue
+                if device_type == "Network" and device_name in excluded_networks:
+                    continue
+                oclp_compatibility = device_props.get("OCLP Compatibility")
+                if self.utils.parse_darwin_version(oclp_compatibility[0]) >= self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version(oclp_compatibility[-1]):
+                    return True
+        return False
+
+    def has_discrete_amd_gpu(self, hardware_report):
+        return any(gpu_props.get("Device Type") == "Discrete GPU" and "AMD" in gpu_props.get("Manufacturer", "") for gpu_props in hardware_report.get("GPU", {}).values())
+
+    def monitor_on_intel_gpu(self, hardware_report):
+        gpus = hardware_report.get("GPU", {})
+        return any("Intel" in gpus.get(monitor_info.get("Connected GPU"), {}).get("Manufacturer", "") for monitor_info in hardware_report.get("Monitor", {}).values())
+
+    def select_whatevergreen_first_boot(self, hardware_report, macos_version):
+        self.whatevergreen_first_boot_off = False
+
+        if  self.utils.parse_darwin_version(macos_version) < self.utils.parse_darwin_version("25.0.0") or \
+            not self.kexts[kext_data.kext_index_by_name["WhateverGreen"]].checked or \
+            not self.has_discrete_amd_gpu(hardware_report) or             self.monitor_on_intel_gpu(hardware_report):
+            return False
+
+        print("")
+        while True:
+            answer = self.utils.request_input("Disable WhateverGreen for the first boot? Recommended for AMD GPUs on macOS 26, where connector patching can panic. Re-enable it after installation. (Yes/no): ").strip().lower()
+            if answer in ("", "y", "yes"):
+                self.whatevergreen_first_boot_off = True
+                break
+            elif answer in ("n", "no"):
+                break
+            else:
+                print("\033[91mInvalid selection, please try again.\033[0m\n\n")
+
+        return self.whatevergreen_first_boot_off
+
+    def bios_overrides(self):
+        overrides = {}
+        if self.kexts[kext_data.kext_index_by_name["AppleBCMWLANCompanion"]].checked:
+            overrides["VT-d"] = ("enable", "VT-d must stay enabled for AppleBCMWLANCompanion; Kernel -> Quirks -> DisableIoMapper is off in this build. If macOS stalls with VT-d on, the DMAR table may need patching.")
+        return overrides
+
     def select_required_kexts(self, hardware_report, macos_version, needs_oclp, acpi_patches, usb_map=False):
         self.utils.head("Select Required Kernel Extensions")
         print("")
@@ -156,6 +225,8 @@ class KextMaestro:
         for kext in self.kexts:
             kext.checked = kext.required
         self.usb_map_replaced_default = False
+        kext_needs_oclp = False
+        companion_networks = []
 
         selected_kexts = self.usb_kext_names(usb_map)
 
@@ -183,7 +254,7 @@ class KextMaestro:
                 while True:
                     kext_option = self.utils.request_input("Select audio kext for your system: ").strip()
                     if kext_option == "1":
-                        needs_oclp = True
+                        needs_oclp = kext_needs_oclp = True
                         selected_kexts.append("AppleALC")
                         break
                     elif kext_option == "2":
@@ -272,9 +343,13 @@ class KextMaestro:
             device_id = network_props.get("Device ID")
 
             if device_id in pci_data.BroadcomWiFiIDs and self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version("23.0.0"):
-                selected_kexts.append("IOSkywalkFamily")
-                if self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version("25.0.0"):
-                    selected_kexts.append("AirPortBrcmNIC-Tahoe")
+                if self.select_broadcom_wifi_method(network_name, device_id, hardware_report, macos_version) == "companion":
+                    selected_kexts.append("AppleBCMWLANCompanion")
+                    companion_networks.append(network_name)
+                else:
+                    selected_kexts.append("IOSkywalkFamily")
+                    if self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version("25.0.0"):
+                        selected_kexts.append("AirPortBrcmNIC-Tahoe")
 
             if device_id in pci_data.BroadcomWiFiIDs[:15]:
                 selected_kexts.append("AirportBrcmFixup")
@@ -318,7 +393,7 @@ class KextMaestro:
                     selected_name = wifi_options[int(choice) - 1]
                 selected_kexts.append(selected_name)
                 if selected_name == "AirportItlwm" and darwin_major >= 24:
-                    needs_oclp = True
+                    needs_oclp = kext_needs_oclp = True
                     selected_kexts.append("IOSkywalkFamily")
                     if darwin_major >= 25:
                         selected_kexts.append("AirPortBrcmNIC-Tahoe")
@@ -448,6 +523,9 @@ class KextMaestro:
         if "Sandy Bridge" in hardware_report.get("CPU").get("Codename") or "Ivy Bridge" in hardware_report.get("CPU").get("Codename"):
             selected_kexts.extend(("AppleIntelCPUPowerManagement", "AppleIntelCPUPowerManagementClient"))
 
+        if companion_networks:
+            needs_oclp = kext_needs_oclp or self.hardware_needs_oclp(hardware_report, macos_version, companion_networks)
+
         if needs_oclp:
             selected_kexts.extend(("AMFIPass", "RestrictEvents"))
 
@@ -456,6 +534,8 @@ class KextMaestro:
 
         for name in selected_kexts:
             self.check_kext(kext_data.kext_index_by_name.get(name), macos_version, name in force_load_kexts)
+
+        self.select_whatevergreen_first_boot(hardware_report, macos_version)
 
         return needs_oclp
 

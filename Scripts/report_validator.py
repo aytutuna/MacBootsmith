@@ -44,6 +44,7 @@ class ReportValidator:
                     "required": True,
                     "schema": {
                         "Version": {"type": str, "required": False},
+                        "Vendor": {"type": str, "required": False},
                         "Release Date": {"type": str, "required": False},
                         "System Type": {"type": str, "required": False},
                         "Firmware Type": {"type": str, "pattern": self.PATTERNS["firmware_type"]},

@@ -7,6 +7,7 @@ from Scripts import config_prodigy
 from Scripts import gathering_files
 from Scripts import hardware_customizer
 from Scripts import kext_maestro
+from Scripts import preflight
 from Scripts import recovery_fetcher
 from Scripts import report_validator
 from Scripts import run
@@ -40,6 +41,7 @@ class OCPE:
         self.rf = recovery_fetcher.RecoveryFetcher()
         self.val = validator.ConfigValidator()
         self.usb = usb_writer.USBWriter()
+        self.pf = preflight.Preflight()
         self.usb_mapper = usb_mapper.USBMapper()
         self.usb_map_override = None
         self.usb_map_source = None
@@ -75,7 +77,9 @@ class OCPE:
                 error_message = "Unknown error."
             return None, None, error_message
 
-        return os.path.join(report_dir, "Report.json"), os.path.join(report_dir, "ACPI"), None
+        report_path = os.path.join(report_dir, "Report.json")
+        self.pf.add_bios_vendor(report_path)
+        return report_path, os.path.join(report_dir, "ACPI"), None
 
     def select_hardware_report(self):
         self.ac.dsdt = self.ac.acpi.acpi_tables = None
@@ -375,7 +379,7 @@ class OCPE:
                 raise Exception("{} was copied to {} but is missing from Kernel -> Add.".format(usb_map_bundle, kexts_directory))
 
         self.u.progress_bar(title, steps, 3)
-        self.co.genarate(hardware_report, disabled_devices, smbios_model, macos_version, needs_oclp, self.k.kexts, config_data)
+        self.co.genarate(hardware_report, disabled_devices, smbios_model, macos_version, needs_oclp, self.k.kexts, config_data, self.k.whatevergreen_first_boot_off, os.path.join(self.result_dir, "EFI", "OC", "ACPI"))
         self.u.write_file(config_file, config_data)
 
         self.u.progress_bar(title, steps, 4)
@@ -451,7 +455,7 @@ class OCPE:
         time.sleep(2)
         return is_valid
         
-    def check_bios_requirements(self, org_hardware_report, hardware_report):
+    def check_bios_requirements(self, org_hardware_report, hardware_report, overrides=None):
         disable = []
         enable = []
 
@@ -478,7 +482,7 @@ class OCPE:
             notes = []
             disable.append("Resizable BAR/Smart Access Memory")
 
-        checklist = self.bios_checklist.build(hardware_report)
+        checklist = self.bios_checklist.build(hardware_report, overrides)
         keywords = ("Secure Boot", "Above 4G", "CSM")
         handled = [word for word in keywords if any(word in item for item in disable + enable)]
         if hedt_npci:
@@ -492,15 +496,45 @@ class OCPE:
                     continue
                 items.append(item)
 
+        for note in getattr(getattr(self, "co", None), "bios_notes", None) or []:
+            if note not in notes:
+                notes.append(note)
+
         return {"disable": disable, "enable": enable, "notes": notes}
+
+    def first_boot_notes(self, hardware_report):
+        notes = []
+        first_boot = getattr(self.co, "whatevergreen_first_boot", None)
+        if first_boot:
+            notes.append("WhateverGreen.kext is in EFI/OC/Kexts but disabled for the first boot (AMD connector patching can panic on macOS 26).")
+            notes.append("After installing macOS, open config.plist and set Kernel -> Add -> WhateverGreen.kext -> Enabled to true.")
+            if first_boot.get("agdp_patch"):
+                notes.append("Then remove the Kernel -> Patch entry \"AGDP board-id patch (pikera) for first boot without WhateverGreen\" and add agdpmod=pikera back to boot-args.")
+
+        if self.k.kexts[kext_maestro.kext_data.kext_index_by_name.get("AppleBCMWLANCompanion")].checked:
+            for network_name, network_props in hardware_report.get("Network", {}).items():
+                firmware = config_prodigy.bcmc_firmwares.get(network_props.get("Device ID"))
+                if not firmware:
+                    continue
+                chip = firmware[0].split("-")[0].replace("brcmfmac", "BCM")
+                notes.append("Wi-Fi ({}) stays off until the firmware is installed: after installing macOS, download {} from https://github.com/0xFireWolf/AppleBCMWLANCompanion/tree/main/Firmwares/{} into {}.".format(network_name, firmware[0], chip, config_prodigy.bcmc_firmware_dir))
+            notes.append("AppleBCMWLANCompanion panics during macOS updates: disable it in Kernel -> Add before updating and enable it again afterwards.")
+        return notes
+
+    def post_install_notes(self):
+        return ["After installing, copy the EFI folder to the internal disk's EFI partition. Then set Misc -> Boot -> LauncherOption to Full (Short on Insyde firmware) so OpenCore registers its own firmware boot entry; this build leaves it Disabled so that testing the USB does not change the firmware boot order."]
 
     def before_using_efi(self, org_hardware_report, hardware_report):
         self.u.head("Before Using EFI")
         print("")                 
         print("\033[93mPlease complete the following steps:\033[0m")
         print("")
+
+        print("* Windows Preflight (this PC, before changing firmware settings):")
+        self.pf.show(org_hardware_report, hardware_report)
+        print("")
         
-        bios_requirements = self.check_bios_requirements(org_hardware_report, hardware_report)
+        bios_requirements = self.check_bios_requirements(org_hardware_report, hardware_report, self.k.bios_overrides())
         print("* BIOS/UEFI Settings Required:")
         for title, field in (("Disable", "disable"), ("Enable", "enable"), ("Notes", "notes")):
             if bios_requirements[field]:
@@ -519,6 +553,16 @@ class OCPE:
             print("    - Map USB ports with option 6 (USB Port Mapping) before building, then build again.")
             print("    - Until then UTBDefault.kext enables every port, which can go past the 15-port limit per controller.")
         print("    - XhciPortLimit does not work on macOS 11.3 and newer, so do not rely on it to lift the 15-port limit.")
+        print("")
+        first_boot_notes = self.first_boot_notes(hardware_report)
+        if first_boot_notes:
+            print("* First Boot:")
+            for note in first_boot_notes:
+                print("    - {}".format(note))
+            print("")
+        print("* After Installing macOS:")
+        for note in self.post_install_notes():
+            print("    - {}".format(note))
         print("")
         self.u.request_input()
         self.u.open_folder(self.result_dir)
@@ -642,12 +686,28 @@ class OCPE:
         else:
             print("USB map: none, UTBDefault.kext is used")
 
-        bios_requirements = self.check_bios_requirements(hardware_report, customized_hardware)
+        print("")
+        print("Windows preflight:")
+        self.pf.show(hardware_report, customized_hardware)
+
+        bios_requirements = self.check_bios_requirements(hardware_report, customized_hardware, self.k.bios_overrides())
         print("")
         print("BIOS/UEFI settings:")
         for title, field in (("Disable", "disable"), ("Enable", "enable"), ("Notes", "notes")):
             for item in bios_requirements[field]:
                 print("    {}: {}".format(title, item))
+
+        first_boot_notes = self.first_boot_notes(customized_hardware)
+        if first_boot_notes:
+            print("")
+            print("First boot:")
+            for note in first_boot_notes:
+                print("    {}".format(note))
+
+        print("")
+        print("After installing:")
+        for note in self.post_install_notes():
+            print("    {}".format(note))
 
         if not answers.get("skip_recovery", True):
             print("")

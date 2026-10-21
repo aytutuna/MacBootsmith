@@ -69,12 +69,17 @@ analog audio. HDMI, DisplayPort and USB audio keep working. Options:
 
 - Broadcom: native support ended in Sonoma. Either root patches (OCLP) or
   AppleBCMWLANCompanion (no root patches, needs VT-d enabled, so not on AMD,
-  still marked unstable). Not in the fork's kext list; candidate addition.
+  still marked unstable). Upstream supports only BCM4350 (14E4-43A3) and
+  BCM43602 (14E4-43BA) on Sequoia and Tahoe. The fork offers it as option 2
+  for those cards on Intel CPUs: DisableIoMapper stays off, the BIOS checklist
+  says enable VT-d, `wlan.pcie.detectsabotage=0` and the `bcmc-*` firmware
+  properties are written, and the firmware file has to be copied to
+  `/usr/local/share/firmware/wifi/` after install.
 - Intel Wi-Fi: AirportItlwm (laobamac fork for Tahoe, already in the fork) or
   itlwm plus HeliPort.
-- Intel Bluetooth on Tahoe needs boot-arg `-ibtcompatbeta`. Not set by the
-  fork (grep of Scripts/ finds no match); add it when IntelBluetoothFirmware
-  is selected and Darwin is 25 or newer.
+- Intel Bluetooth on Tahoe needs boot-arg `-ibtcompatbeta`. The fork adds it
+  when IntelBluetoothFirmware or IntelBTPatcher is selected and Darwin is 25
+  or newer (config_prodigy.py boot_args).
 - Early Tahoe: IntelBTPatcher panics were reported; keep it easy to disable.
 
 ## OTA updates
@@ -90,8 +95,11 @@ AMD connector patching panics on some Tahoe builds. Workaround from Dortania:
 remove WhateverGreen.kext; if `agdpmod=pikera` was needed, apply the pikera
 kext patch manually under Kernel -> Patch. kextcache's install flow disables
 WhateverGreen and the USB map kext for the first install and re-enables them
-afterwards. The app should offer a "first boot safe mode" toggle that does
-exactly that.
+afterwards. The fork asks "Disable WhateverGreen for the first boot?" for
+discrete AMD GPUs on Darwin 25 (default Yes): the kext stays in the EFI with
+`Enabled` false, and `agdpmod=pikera` is replaced by an AGDP board-id kernel
+patch. Re-enabling is described in install-flow.md section 6a. The USB map
+kext is not disabled.
 
 ## Recovery download for Tahoe
 

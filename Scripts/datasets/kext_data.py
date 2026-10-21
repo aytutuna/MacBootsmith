@@ -189,11 +189,25 @@ kexts = [
         description = "Enable Broadcom Wi-Fi adapters on macOS Tahoe",
         category = "Wi-Fi",
         min_darwin_version = "25.0.0",
+        conflict_group_id = "BroadcomWiFi",
         allow_force_load = False,
         requires_kexts = ["IO80211FamilyLegacy"],
         download_info = {
             "id": 590725096,
             "url": "https://raw.githubusercontent.com/dortania/OpenCore-Legacy-Patcher/main/payloads/Kexts/Wifi/AirPortBrcmNIC-Tahoe-v1.0.0.zip"
+        }
+    ),
+    KextInfo(
+        name = "AppleBCMWLANCompanion",
+        description = "Native Broadcom BCM4350 and BCM43602 Wi-Fi without root patches (needs VT-d, beta)",
+        category = "Wi-Fi",
+        min_darwin_version = "24.0.0",
+        conflict_group_id = "BroadcomWiFi",
+        allow_force_load = False,
+        requires_kexts = ["Lilu"],
+        github_repo = {
+            "owner": "0xFireWolf",
+            "repo": "AppleBCMWLANCompanion"
         }
     ),
     KextInfo(

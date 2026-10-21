@@ -68,7 +68,17 @@ class BIOSChecklist:
                     merged.append(item)
         return merged
 
-    def build(self, hardware_report):
+    def apply_overrides(self, disable, enable, notes, overrides):
+        for setting, (state, note) in (overrides or {}).items():
+            disable = [item for item in disable if setting not in item]
+            enable = [item for item in enable if setting not in item]
+            notes = [item for item in notes if setting not in item]
+            (enable if state == "enable" else disable).append(setting)
+            if note:
+                notes.append(note)
+        return disable, enable, notes
+
+    def build(self, hardware_report, overrides=None):
         key = self.resolve_key(hardware_report)
         disable = self.merge("disable", key)
         enable = self.merge("enable", key)
@@ -79,5 +89,7 @@ class BIOSChecklist:
             disable = [item for item in disable if "Secure Boot" not in item]
         if any(gpu.get("Resizable BAR") == "Enabled" for gpu in hardware_report.get("GPU", {}).values()):
             enable = [item for item in enable if "Above 4G Decoding" not in item]
+
+        disable, enable, notes = self.apply_overrides(disable, enable, notes, overrides)
 
         return {"key": key, "disable": disable, "enable": enable, "notes": notes}

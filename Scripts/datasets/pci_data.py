@@ -467,6 +467,12 @@ BroadcomWiFiIDs = [
     "14E4-43BA"
 ]
 
+BroadcomFullMACWiFiIDs = [
+    # AppleBCMWLANCompanion.kext
+    "14E4-43A3",
+    "14E4-43BA"
+]
+
 IntelWiFiIDs = [
     # itlwm.kext
     "8086-0060",
