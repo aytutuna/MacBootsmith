@@ -10,6 +10,7 @@ from Scripts import recovery_fetcher
 from Scripts import report_validator
 from Scripts import run
 from Scripts import smbios
+from Scripts import usb_writer
 from Scripts import utils
 from Scripts import validator
 import updater
@@ -34,6 +35,7 @@ class OCPE:
         self.v = report_validator.ReportValidator()
         self.rf = recovery_fetcher.RecoveryFetcher()
         self.val = validator.ConfigValidator()
+        self.usb = usb_writer.USBWriter()
         self.r = run.Run()
         self.result_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Results")
 
@@ -414,6 +416,7 @@ class OCPE:
             print("5. Customize SMBIOS Model")
             print("6. Build OpenCore EFI")
             print("7. Download macOS Recovery")
+            print("8. Create USB Installer")
             print("")
             print("Q. Quit")
             print("")
@@ -454,6 +457,25 @@ class OCPE:
                     print("Copy the com.apple.recovery.boot folder to the root of the FAT32 USB partition, next to the EFI folder.")
                     print("")
                 self.u.request_input("Press Enter to main menu...")
+                continue
+
+            if option == "8":
+                self.u.head("Create USB Installer")
+                print("")
+                print("1. Format a USB drive and write the installer")
+                print("2. Copy EFI to an existing USB drive")
+                print("")
+                print("Any other key to go back")
+                print("")
+                usb_option = self.u.request_input("Select an option: ").strip()
+                if usb_option == "1":
+                    self.usb.create_installer(self.result_dir, os.path.join(self.result_dir, "com.apple.recovery.boot"), dry_run="--dry-run-usb" in sys.argv)
+                    print("")
+                    self.u.request_input("Press Enter to main menu...")
+                elif usb_option == "2":
+                    self.usb.copy_efi_to_existing(self.result_dir)
+                    print("")
+                    self.u.request_input("Press Enter to main menu...")
                 continue
 
             if not hardware_report_path:
