@@ -64,7 +64,7 @@ def _hex(value):
 
 
 def make_build_summary(hardware_report, config, smbios_model, macos_version, needs_oclp, ocvalidate="unavailable",
-                       whatevergreen_first_boot=None, applealc=False, simplehda=False, bcmc=False, usb_map_kext=None):
+                       whatevergreen_first_boot=None, applealc=False, simplehda=False, bcmc=False, usb_map_kext=None, debug=False):
     hardware_report = hardware_report or {}
     config = config or {}
     motherboard = hardware_report.get("Motherboard") or {}
@@ -125,6 +125,7 @@ def make_build_summary(hardware_report, config, smbios_model, macos_version, nee
         "smbios_model": smbios_model,
         "needs_oclp": bool(needs_oclp),
         "ocvalidate": ocvalidate,
+        "debug": bool(debug),
         "whatevergreen_first_boot": {"agdp_patch": bool(whatevergreen_first_boot.get("agdp_patch"))} if whatevergreen_first_boot else None,
         "audio": audio,
         "broadcom_companion": broadcom,

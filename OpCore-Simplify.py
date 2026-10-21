@@ -7,6 +7,7 @@ from Scripts import config_prodigy
 from Scripts import gathering_files
 from Scripts import hardware_customizer
 from Scripts import kext_maestro
+from Scripts import log_analyzer
 from Scripts import postinstall_kit
 from Scripts import preflight
 from Scripts import recovery_fetcher
@@ -49,6 +50,7 @@ class OCPE:
         self.bios_checklist = bios_checklist.BIOSChecklist()
         self.pk = postinstall_kit.PostInstallKit()
         self.build_summary = None
+        self.debug_build = False
         self.r = run.Run()
         self.result_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Results")
 
@@ -310,7 +312,21 @@ class OCPE:
             self.u.request_input("Press Enter to main menu...")
         return selection
 
-    def build_opencore_efi(self, hardware_report, disabled_devices, smbios_model, macos_version, needs_oclp):
+    def select_debug_build(self):
+        answer = self.u.request_input("Build a DEBUG EFI with logging? Use this only to diagnose a boot that fails; it is slower and writes log files to the EFI partition. (yes/No): ")
+        self.debug_build = answer.strip().lower() in ("y", "yes")
+        return self.debug_build
+
+    def debug_build_notes(self):
+        return [
+            "This EFI uses the DEBUG OpenCore build with logging on (Misc -> Debug: AppleDebug, ApplePanic, Target 67). Booting takes a few seconds longer.",
+            "Every boot writes opencore-YYYY-MM-DD-hhmmss.txt to the root of the EFI partition it booted from (the USB drive when you boot from it), next to the EFI folder.",
+            "To collect it, boot until it fails, then plug the USB drive into this PC (or mount the internal EFI partition) and keep the newest opencore-*.txt.",
+            "Option 11 (Analyze Boot Log) reads the newest log from a drive letter, folder or file and names the stage where the boot stopped.",
+            "Once macOS boots, build again and answer No to the DEBUG question to get the faster RELEASE EFI."
+        ]
+
+    def build_opencore_efi(self, hardware_report, disabled_devices, smbios_model, macos_version, needs_oclp, debug=False):
         steps = [
             "Copying EFI base to results folder",
             "Applying ACPI patches",
@@ -337,7 +353,9 @@ class OCPE:
         if not os.path.exists(self.k.ock_files_dir):
             raise Exception("Directory '{}' does not exist.".format(self.k.ock_files_dir))
         
-        source_efi_dir = os.path.join(self.k.ock_files_dir, "OpenCorePkg")
+        source_efi_dir = os.path.join(self.k.ock_files_dir, gathering_files.OPENCORE_DEBUG_PRODUCT if debug else gathering_files.OPENCORE_PRODUCT)
+        if debug and not os.path.isdir(os.path.join(source_efi_dir, "EFI")):
+            raise Exception("The DEBUG OpenCore package is missing from {}. Gather the files again with the DEBUG build selected.".format(source_efi_dir))
         shutil.copytree(source_efi_dir, self.result_dir, dirs_exist_ok=True)
 
         config_file = os.path.join(self.result_dir, "EFI", "OC", "config.plist")
@@ -392,6 +410,7 @@ class OCPE:
 
         self.u.progress_bar(title, steps, 3)
         self.co.genarate(hardware_report, disabled_devices, smbios_model, macos_version, needs_oclp, self.k.kexts, config_data, self.k.whatevergreen_first_boot_off, os.path.join(self.result_dir, "EFI", "OC", "ACPI"))
+        self.co.apply_debug_settings(config_data, debug)
         self.u.write_file(config_file, config_data)
 
         self.u.progress_bar(title, steps, 4)
@@ -463,13 +482,13 @@ class OCPE:
             print("")
             self.u.request_input("Press Enter to continue...")
 
-        self.record_build_summary(hardware_report, config_data, smbios_model, macos_version, needs_oclp, is_valid)
+        self.record_build_summary(hardware_report, config_data, smbios_model, macos_version, needs_oclp, is_valid, debug=debug)
 
-        print("OpenCore EFI build complete.")
+        print("OpenCore EFI build complete{}.".format(" (DEBUG)" if debug else ""))
         time.sleep(2)
         return is_valid
 
-    def record_build_summary(self, hardware_report, config_data, smbios_model, macos_version, needs_oclp, is_valid):
+    def record_build_summary(self, hardware_report, config_data, smbios_model, macos_version, needs_oclp, is_valid, debug=False):
         usb_map_kext = None
         if self.usb_map_source:
             usb_map_kext = os.path.basename(os.path.normpath(self.usb_map_source["path"])) if self.usb_map_source["kind"] == "kext" else usb_mapper.KEXT_NAME
@@ -481,7 +500,8 @@ class OCPE:
             applealc=self.k.kexts[kext_index["AppleALC"]].checked,
             simplehda=self.k.kexts[kext_index["SimpleHDA"]].checked,
             bcmc=self.k.kexts[kext_index["AppleBCMWLANCompanion"]].checked,
-            usb_map_kext=usb_map_kext
+            usb_map_kext=usb_map_kext,
+            debug=debug
         )
         self.pk.save_summary(self.build_summary, os.path.join(self.result_dir, postinstall_kit.SUMMARY_NAME))
         kit_dir = os.path.join(self.result_dir, postinstall_kit.KIT_FOLDER)
@@ -619,6 +639,11 @@ class OCPE:
             for note in first_boot_notes:
                 print("    - {}".format(note))
             print("")
+        if self.debug_build:
+            print("* DEBUG Build:")
+            for note in self.debug_build_notes():
+                print("    - {}".format(note))
+            print("")
         print("* After Installing macOS:")
         for note in self.post_install_notes():
             print("    - {}".format(note))
@@ -657,11 +682,18 @@ class OCPE:
         if kit_mode not in (False, None) and kit_mode not in postinstall_kit.MODES:
             raise Exception('postinstall_kit must be "full", "docs-only" or false.')
 
+        debug_answer = answers.get("debug")
+        if debug_answer not in (None, True, False):
+            raise Exception("debug must be true or false.")
+
         macos_answer = self.resolve_headless_macos_version(answers.get("macos_version", ""))
         prompts = {"Please enter the macOS version": macos_answer}
+        if debug_answer is not None:
+            prompts["Build a DEBUG EFI"] = "yes" if debug_answer else "no"
         for key, value in (answers.get("prompts") or {}).items():
-            if key.lower() != "please enter the macos version":
-                prompts[key] = value
+            if key.lower() == "please enter the macos version" or (debug_answer is not None and key.lower() == "build a debug efi"):
+                continue
+            prompts[key] = value
         answers["prompts"] = prompts
         self.u.set_headless(answers)
 
@@ -734,11 +766,12 @@ class OCPE:
             return self.print_headless_summary(3, smbios_model)
 
         print("")
+        self.select_debug_build()
         self.prepare_usb_map(customized_hardware, macos_version)
-        if not self.o.gather_bootloader_kexts(self.k.kexts, macos_version):
+        if not self.o.gather_bootloader_kexts(self.k.kexts, macos_version, debug=self.debug_build):
             raise Exception("Could not gather OpenCorePkg and kexts.")
 
-        is_valid = self.build_opencore_efi(customized_hardware, disabled_devices, smbios_model, macos_version, needs_oclp)
+        is_valid = self.build_opencore_efi(customized_hardware, disabled_devices, smbios_model, macos_version, needs_oclp, debug=self.debug_build)
 
         config_file = os.path.join(self.result_dir, "EFI", "OC", "config.plist")
         if not os.path.exists(config_file):
@@ -768,6 +801,12 @@ class OCPE:
             for note in first_boot_notes:
                 print("    {}".format(note))
 
+        if self.debug_build:
+            print("")
+            print("DEBUG build:")
+            for note in self.debug_build_notes():
+                print("    {}".format(note))
+
         print("")
         print("After installing:")
         for note in self.post_install_notes():
@@ -786,6 +825,28 @@ class OCPE:
         if is_valid is True:
             return self.print_headless_summary(0, smbios_model, "passed")
         return self.print_headless_summary(2, smbios_model, "errors" if is_valid is False else "unavailable")
+
+    def analyze_boot_log(self, location=None):
+        self.u.head("Analyze Boot Log")
+        print("")
+        if location is None:
+            print("A DEBUG EFI writes opencore-YYYY-MM-DD-hhmmss.txt to the root of the EFI partition it booted from.")
+            print("Enter the USB drive letter (for example E), a folder, or a log file (a QEMU serial.log works too).")
+            print("")
+            location = self.u.request_input("Drive, folder or log file (Enter to go back): ").strip().strip('"')
+            if not location:
+                return None
+
+        analyzer = log_analyzer.LogAnalyzer()
+        if not analyzer.load(location):
+            print("")
+            print("\033[1;93mNo OpenCore log (opencore-*.txt or serial.log) found at {}.\033[0m".format(location))
+            print("Build a DEBUG EFI (option 7, answer yes to the DEBUG question), boot it once, then try again.")
+            return None
+
+        report = analyzer.analyze()
+        analyzer.render(report)
+        return report
 
     def main(self):
         hardware_report_path = None
@@ -820,6 +881,7 @@ class OCPE:
             print("8. Download macOS Recovery")
             print("9. Prepare Post-Install Kit")
             print("10. Create USB Installer")
+            print("11. Analyze Boot Log")
             print("")
             print("Q. Quit")
             print("")
@@ -887,6 +949,12 @@ class OCPE:
                     self.u.request_input("Press Enter to main menu...")
                 continue
 
+            if option == "11":
+                self.analyze_boot_log()
+                print("")
+                self.u.request_input("Press Enter to main menu...")
+                continue
+
             if not hardware_report_path:
                 self.u.head()
                 print("\n\n")
@@ -920,15 +988,17 @@ class OCPE:
                     continue
 
                 try:
+                    print("")
+                    self.select_debug_build()
                     self.prepare_usb_map(customized_hardware, macos_version)
-                    self.o.gather_bootloader_kexts(self.k.kexts, macos_version)
+                    self.o.gather_bootloader_kexts(self.k.kexts, macos_version, debug=self.debug_build)
                 except Exception as e:
                     print("\033[91mError: {}\033[0m".format(e))
                     print("")
                     self.u.request_input("Press Enter to continue...")
                     continue
                 
-                self.build_opencore_efi(customized_hardware, disabled_devices, smbios_model, macos_version, needs_oclp)
+                self.build_opencore_efi(customized_hardware, disabled_devices, smbios_model, macos_version, needs_oclp, debug=self.debug_build)
                 self.before_using_efi(hardware_report, customized_hardware)
 
                 self.u.head("Result")
@@ -955,7 +1025,25 @@ def run_headless(answers_path):
     finally:
         utils.Utils.set_headless(None)
 
+def analyze_log(path):
+    if hasattr(sys.stdout, "reconfigure") and not sys.stdout.isatty():
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
+
+    analyzer = log_analyzer.LogAnalyzer()
+    if not analyzer.load(path):
+        print("No OpenCore log (opencore-*.txt or serial.log) found at {}.".format(path))
+        return 1
+    print(analyzer.format_report(analyzer.analyze()))
+    return 0
+
 if __name__ == '__main__':
+    if "--analyze-log" in sys.argv:
+        log_index = sys.argv.index("--analyze-log")
+        if log_index + 1 >= len(sys.argv):
+            print("Usage: python OpCore-Simplify.py --analyze-log <log file, folder or drive>")
+            sys.exit(1)
+        sys.exit(analyze_log(sys.argv[log_index + 1]))
+
     if "--headless" in sys.argv:
         headless_index = sys.argv.index("--headless")
         if headless_index + 1 >= len(sys.argv):

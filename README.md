@@ -49,10 +49,11 @@ Run `OpCore-Simplify.bat` as administrator. The main menu offers:
 4. Customize Kexts: review or change the kext selection.
 5. Customize SMBIOS Model: pick the Mac model to present.
 6. USB Port Mapping: discover the ports on this machine and choose which ones macOS gets (at most 15 per controller).
-7. Build OpenCore EFI: write the EFI and run ocvalidate on it.
+7. Build OpenCore EFI: write the EFI and run ocvalidate on it. Answer yes to the DEBUG question only to diagnose a boot that fails: the EFI then uses the DEBUG OpenCore build and writes a log file to the EFI partition on every boot.
 8. Download macOS Recovery: fetch the recovery image for the chosen release.
 9. Prepare Post-Install Kit: write the post-install checklist, helper script and SMBIOS values to `Results\PostInstall`, with or without the tools.
 10. Create USB Installer: format a USB drive and write the installer, or copy only the EFI to an existing drive. The post-install kit is copied too when it exists.
+11. Analyze Boot Log: read the newest `opencore-*.txt` from a drive letter, folder or file (a QEMU `serial.log` works too) and report how far the boot got, the known errors it contains with their fixes, and the last lines. Serial numbers, MLB and system-id are masked. No hardware report is needed.
 
 Then boot from the USB and work through the on-screen BIOS checklist.
 
@@ -60,6 +61,14 @@ Headless mode builds an EFI without prompts, from a JSON answers file (used by C
 
 ```
 python OpCore-Simplify.py --headless <answers.json>
+```
+
+Add `"debug": true` to the answers file for a DEBUG EFI (see `tests/fixtures/answers-desktop-debug.json`).
+
+The boot log analyser also runs on its own; it exits 1 when no log is found:
+
+```
+python OpCore-Simplify.py --analyze-log <log file, folder or drive>
 ```
 
 ## Development
@@ -73,8 +82,8 @@ python -m unittest discover -s tests
 The CI workflow (`.github/workflows/ci.yml`) has four jobs:
 
 - test: the unit tests.
-- build: headless EFI build per hardware report fixture, with an ocvalidate check and, for the desktop fixture, a docs-only post-install kit check; the EFI is uploaded as an artifact.
-- boot: boots the built EFI in QEMU and checks that the OpenCore picker appears.
+- build: headless EFI build per hardware report fixture (desktop, desktop-debug, laptop), with an ocvalidate check, a DEBUG settings check for desktop-debug and, for the desktop fixture, a docs-only post-install kit check; the EFI is uploaded as an artifact.
+- boot: boots the desktop and desktop-debug EFIs in QEMU, checks that the OpenCore picker appears, and runs the boot log analyser on the serial log.
 - recovery-download: downloads and verifies a macOS 26 recovery image.
 
 Design notes live in `docs/reference/` (BIOS settings, install flow, post-install, OCLP, Tahoe, gaps, external links).

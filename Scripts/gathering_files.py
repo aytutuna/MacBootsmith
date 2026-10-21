@@ -10,6 +10,9 @@ import platform
 
 os_name = platform.system()
 
+OPENCORE_PRODUCT = "OpenCorePkg"
+OPENCORE_DEBUG_PRODUCT = "OpenCorePkg-DEBUG"
+
 class gatheringFiles:
     def __init__(self):
         self.utils = utils.Utils()
@@ -95,6 +98,15 @@ class gatheringFiles:
             "sha256": dortania_builds_data["OpenCorePkg"]["versions"][0]["hashes"]["release"]["sha256"]
         })
 
+        opencore_build = dortania_builds_data["OpenCorePkg"]["versions"][0]
+        if opencore_build.get("links", {}).get("debug"):
+            add_product_info({
+                "product_name": OPENCORE_DEBUG_PRODUCT,
+                "id": opencore_build["release"]["id"],
+                "url": opencore_build["links"]["debug"],
+                "sha256": opencore_build.get("hashes", {}).get("debug", {}).get("sha256")
+            })
+
         return latest_products
     
     def move_bootloader_kexts_to_product_directory(self, product_name):
@@ -141,6 +153,9 @@ class gatheringFiles:
                         if ".icns" in ", ".join(os.listdir(os.path.join(resources_image_dir, picker_variant))):
                             shutil.copy(background_picker_path, os.path.join(resources_image_dir, picker_variant, "Background.icns"))
 
+            if product_name != OPENCORE_PRODUCT:
+                return True
+
             macserial_paths = self.utils.find_matching_paths(temp_product_dir, name_filter="macserial", type_filter="file")
             if macserial_paths:
                 for macserial_path, _ in macserial_paths:
@@ -162,7 +177,13 @@ class gatheringFiles:
         
         return True
     
-    def gather_bootloader_kexts(self, kexts, macos_version):
+    def opencore_products(self, debug=False):
+        products = [{"Name": OPENCORE_PRODUCT}]
+        if debug:
+            products.append({"Name": OPENCORE_DEBUG_PRODUCT})
+        return products
+
+    def gather_bootloader_kexts(self, kexts, macos_version, debug=False):
         self.utils.head("Gathering Files")
         print("")
         print("Please wait for download OpenCorePkg, kexts and macserial...")
@@ -174,7 +195,7 @@ class gatheringFiles:
 
         seen_download_urls = set()
 
-        for product in kexts + [{"Name": "OpenCorePkg"}]:
+        for product in kexts + self.opencore_products(debug):
             if not isinstance(product, dict) and not product.checked:
                 continue
 
@@ -275,7 +296,7 @@ class gatheringFiles:
                         os.remove(item_path)
                         dirs_to_scan.append(os.path.splitext(item_path)[0])
 
-            if "OpenCore" in product_name:
+            if "OpenCore" in product_name and not os.path.isdir(os.path.join(self.temporary_dir, "OcBinaryData", "OcBinaryData-master")):
                 oc_binary_data_zip_path = os.path.join(self.temporary_dir, "OcBinaryData.zip")
                 print("")
                 print("Please wait for download OcBinaryData...")

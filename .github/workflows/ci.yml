@@ -37,6 +37,9 @@ jobs:
           - fixture: desktop
             answers: tests/fixtures/answers-desktop.json
             allowed: "0"
+          - fixture: desktop-debug
+            answers: tests/fixtures/answers-desktop-debug.json
+            allowed: "0"
           - fixture: laptop
             answers: tests/fixtures/answers-laptop.json
             allowed: "0 3"
@@ -55,9 +58,9 @@ jobs:
             OCK_Files
             Scripts/macserial*
             Scripts/ocvalidate*
-          key: ock-${{ hashFiles('.github/workflows/ci.yml') }}-${{ steps.week.outputs.week }}
+          key: ock-${{ matrix.fixture }}-${{ hashFiles('.github/workflows/ci.yml') }}-${{ steps.week.outputs.week }}
           restore-keys: |
-            ock-${{ hashFiles('.github/workflows/ci.yml') }}-
+            ock-${{ matrix.fixture }}-${{ hashFiles('.github/workflows/ci.yml') }}-
       - name: Headless build (${{ matrix.fixture }})
         shell: bash
         env:
@@ -92,6 +95,15 @@ jobs:
             echo "::error::${{ matrix.fixture }}: ocvalidate exited with $rc"
             exit 1
           fi
+      - name: Check DEBUG build
+        if: env.build_exit == '0' && matrix.fixture == 'desktop-debug'
+        shell: bash
+        run: |
+          if ! grep -a -q "Ready for takeoff" Results/EFI/OC/OpenCore.efi; then
+            echo "::error::OpenCore.efi is not a DEBUG build"
+            exit 1
+          fi
+          python -c "import json, plistlib, sys; d = plistlib.load(open('Results/EFI/OC/config.plist', 'rb'))['Misc']['Debug']; s = json.load(open('Results/build_summary.json')); ok = d['AppleDebug'] and d['ApplePanic'] and d['Target'] == 67 and d['DisplayLevel'] == 2147483714 and s['debug'] is True; print(d); sys.exit(0 if ok else 1)"
       - name: Check post-install kit
         if: env.build_exit == '0' && matrix.fixture == 'desktop'
         shell: bash
@@ -122,9 +134,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        fixture: [desktop]
+        fixture: [desktop, desktop-debug]
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: actions/download-artifact@v4
         with:
           name: efi-${{ matrix.fixture }}
@@ -135,6 +150,15 @@ jobs:
           sudo apt-get install -y qemu-system-x86 ovmf mtools dosfstools
       - name: Boot EFI in QEMU
         run: bash tests/boot/run_qemu.sh efi/EFI
+      - name: Analyze serial log
+        if: success() || failure()
+        shell: bash
+        run: |
+          python OpCore-Simplify.py --analyze-log serial.log | tee analysis.txt
+          if ! grep -q "^Verdict: *Reached the boot picker" analysis.txt; then
+            echo "::error::${{ matrix.fixture }}: the boot log analysis did not report the boot picker"
+            exit 1
+          fi
 
   recovery-download:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

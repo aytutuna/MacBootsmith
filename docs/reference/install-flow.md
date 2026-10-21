@@ -116,6 +116,8 @@ Sources: `docs/reference/tahoe.md` ("WhateverGreen on Tahoe"), `_ref/dortania-in
 
 Boot stage reference: OpenCore loads (BOOTx64.efi, OpenCore.efi, drivers, ACPI, SMBIOS) then the picker; boot.efi handoff (EndRandomSeed, EXITBS); kernel (kext loading, `[ PCI configurations begin ]`, USB setup, DSMOS, audio, GPU); userspace (installer UI). Read the last verbose line before choosing a fix; use a DEBUG build with `Target` 67 for OpenCore-stage problems.
 
+In the app: build again with option 7 and answer yes to "Build a DEBUG EFI with logging?", boot once from the USB drive, then use option 11 (Analyze Boot Log) with the USB drive letter. It picks the newest `opencore-*.txt`, reports the furthest stage reached (config loaded, drivers loaded, picker shown, entry chosen, booter handoff, kernel started), matches the log against the rows of this table and prints the cause and fix of each match plus the last 15 lines. From a terminal: `python OpCore-Simplify.py --analyze-log E:` (a file, folder or QEMU `serial.log` also works). The pattern list is `Scripts/datasets/boot_log_patterns.py`.
+
 | Symptom | Documented cause | Fix |
 | :--- | :--- | :--- |
 | Black screen before picker | OpenCore not loading drivers, wrong folder layout, non-UEFI firmware, or a driver hanging | DEBUG build with `Target` 67; check log tail; fix `EFI` layout; `HfsPlusLegacy.efi` for HfsPlus load failures; remove `HiiDatabase.efi` if it conflicts; DuetPkg for non-UEFI |
@@ -160,6 +162,8 @@ Sources: `_ref/dortania-install-guide/troubleshooting/{boot.md,debug.md,troubles
 
 ## 8. DEBUG logging recipe
 
-Swap `BOOTx64.efi`, `OpenCore.efi`, `OpenRuntime.efi` (and `OpenCanopy.efi` if used) for the DEBUG build. Then set `Misc -> Debug`: `AppleDebug` YES, `ApplePanic` YES, `DisableWatchdog` YES, `Target` 67 (0x01 log + 0x02 onscreen + 0x40 to file), `DisplayLevel` 2147483714 (0x80000042). Boot-arg `keepsyms=1` keeps panic symbols. The log is a file `opencore-YYYY-MM-DD-hhmmss.txt` at the root of the boot drive. To turn off: replace files with RELEASE, `AppleDebug` NO, `ApplePanic` NO, `Target` 0. Serial logging needs a serial header/port and a second machine.
+Swap `BOOTx64.efi`, `OpenCore.efi`, `OpenRuntime.efi` (and `OpenCanopy.efi` if used) for the DEBUG build. Then set `Misc -> Debug`: `AppleDebug` YES, `ApplePanic` YES, `DisableWatchDog` YES, `Target` 67 (0x01 log + 0x02 onscreen + 0x40 to file; 75 adds 0x08 serial, which the QEMU boot test uses), `DisplayLevel` 2147483714 (0x80000042). Boot-arg `keepsyms=1` keeps panic symbols. The log is a file `opencore-YYYY-MM-DD-hhmmss.txt` at the root of the boot drive. To turn off: replace files with RELEASE, `AppleDebug` NO, `ApplePanic` NO, `Target` 0. Serial logging needs a serial header/port and a second machine.
+
+The app does all of this when you answer yes to the DEBUG question in option 7: the whole base EFI comes from the DEBUG OpenCorePkg of the same version (cached as `OCK_Files/OpenCorePkg-DEBUG`, checked against the SHA-256 published with it), the `Misc -> Debug` values above are set (`SysReport` stays NO), ocvalidate still runs, and `build_summary.json` records `"debug": true`. The RELEASE build is unchanged when the answer is No. Option 11 reads the resulting log.
 
 Sources: `_ref/dortania-install-guide/troubleshooting/debug.md`, `troubleshooting/kernel-debugging.md`.

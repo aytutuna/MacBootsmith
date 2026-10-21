@@ -1,0 +1,70 @@
+[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01HBdsDxe: loading Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+BdsDxe: starting Boot0001 "UEFI QEMU HARDDISK QM00001 " from PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)
+BS: Starting OpenCore application...
+BS: Booter path - \EFI\BOOT\BOOTX64.EFI
+OCFS: Trying to locate filesystem on 7E729C18 7EB57818
+OCFS: Filesystem DP - \EFI\BOOT\BOOTX64.EFI
+BS: Trying to load OpenCore image...
+BS: Relative path - EFI
+BS: Startup path - EFI\OpenCore.efi (0)
+BS: Fallback to absolute path - EFI\OC\OpenCore.efi
+BS: Read OpenCore image of 872448 bytes
+OCM: Loaded image at 7EA56618 handle
+OCM: Loaded image has DeviceHandle 7E729C18 FilePath 7EA55F98 ours DevicePath 7EA57D98
+OCCPU: Failed to get FSBFrequency data using Apple Platform Info - Not Found
+OC: Starting OpenCore...
+OC: Booter path - EFI\OC\OpenCore.efi
+OCFS: Trying to locate filesystem on 7E729C18 7EA55F98
+OCFS: Filesystem DP - EFI\OC\OpenCore.efi
+OC: Absolute booter path - EFI\OC\OpenCore.efi
+OC: Storage root EFI\OC\OpenCore.efi
+OCST: Missing vault data, ignoring...
+OC: OcMiscEarlyInit...
+OC: Loaded configuration of 21958 bytes
+OC: Got 4 drivers
+OC: Watchdog status is 0
+00:000 00:000 BS: Starting OpenCore application...
+00:000 00:000 BS: Booter path - \EFI\BOOT\BOOTX64.EFI
+00:000 00:000 OCFS: Trying to locate filesystem on 7E729C18 7EB57818
+00:000 00:000 OCFS: Filesystem DP - \EFI\BOOT\BOOTX64.EFI
+00:000 00:000 BS: Trying to load OpenCore image...
+01:039 00:006 OC:  <masked> - Success
+01:046 00:007 OC: Setting FirmwareFeatures FFB3F066 - Success
+01:053 00:006 OC: Setting ExtendedFirmwareFeatures 00000008FFB3F066 - Success
+01:060 00:006 OC: Setting FirmwareFeaturesMask FFFFFFFF - Success
+01:067 00:006 OC: Setting ExtendedFirmwareFeaturesMask 00000008FFFFFFFF - Success
+01:073 00:006 OC: OcLoadDevPropsSupport...
+01:081 00:007 OC: Setting devprop PciRoot(0x0)/Pci(0x1f,0x3):layout-id - Success
+01:087 00:006 OC: Setting devprop PciRoot(0x0)/Pci(0x2,0x0):AAPL,ig-platform-id - Success
+01:094 00:006 OC: Setting devprop PciRoot(0x0)/Pci(0x2,0x0):framebuffer-patch-enable - Success
+01:101 00:006 OC: Setting devprop PciRoot(0x0)/Pci(0x2,0x0):framebuffer-stolenmem - Success
+01:107 00:006 OC: OcMiscLateInit...
+01:113 00:006 OC: Translated HibernateMode None to 0
+01:120 00:006 OC: Hibernation activation - Invalid Parameter, hibernation wake - no
+01:126 00:006 OC: OcLoadKernelSupport...
+01:132 00:006 OC: All green, starting boot management...
+01:139 00:006 OC: Ready for takeoff in 0 us
+01:147 00:007 OCB: Adding fs 7E729C18 (E:0|L:1|P:Success) - PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)/HD(1,MBR,0x00000000,0x0,0x80000)
+01:154 00:007 OCB: Found 1 potentially bootable filesystems
+01:162 00:007 OCB: BootOrder/BootNext are not present or unsupported 0 0
+01:169 00:007 OCB: Adding fs 2007C5F5 for 1 custom entries and BEP (aux hidden)
+01:176 00:007 OCB: Processing blessed list
+01:184 00:007 OCPI: Partition table not supported
+01:191 00:007 OCPI: Failed to retrieve disk info
+01:198 00:007 OCB: Adding bless entry on disk - PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)/HD(1,MBR,0x00000000,0x0,0x80000)
+01:206 00:007 OCBP: Blessed file is missing
+01:213 00:006 OCBP: Blessed folder is missing
+01:221 00:007 OCBP: Predefined <nil> \System\Library\CoreServices\boot.efi is missing - Not Found
+01:228 00:007 OCBP: Predefined <nil> \EFI\Microsoft\Boot\bootmgfw.efi is missing - Not Found
+01:235 00:007 OCBP: Predefined <nil> \EFI\BOOT\BOOTX64.EFI was found
+01:243 00:008 OCB: Adding entry type (T:1|F:0|G:1) - PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)/HD(1,MBR,0x00000000,0x0,0x80000)/\EFI\BOOT\BOOTX64.EFI
+01:252 00:008 OCB: Get visibility for boot entry <null string> - Not Found
+01:260 00:007 OCB: Trying to detect Microsoft BCD
+01:268 00:007 OCB: Registering entry NO NAME [Auto] (T:1|F:0|G:1|E:0|B:0) - PciRoot(0x0)/Pci(0x1F,0x2)/Sata(0x0,0xFFFF,0x0)/HD(1,MBR,0x00000000,0x0,0x80000)/\EFI\BOOT\BOOTX64.EFI
+01:282 00:014 OCB: Not adding hidden auxiliary entry ControlMsrE2 (tool|B:0) -> ControlMsrE2.efi
+01:291 00:008 OCB: Not adding hidden auxiliary entry Reset NVRAM (os|B:1) -> <null string>
+01:299 00:008 OCB: Showing menu... 
+01:307 00:008 OCHK: InitHotKeys
+01:315 00:008 OCKM: Allocated key repeat context 7DFC4F98 7DF6CF18 7DFC5F98
+01:324 00:008 OCAE: Set screen resolution to 2560x1600 - Success
+01:332 00:008 OCTY: Registered handler

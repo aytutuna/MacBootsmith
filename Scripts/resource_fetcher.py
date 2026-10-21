@@ -20,6 +20,8 @@ else:
 MAX_ATTEMPTS = 3
 
 class ResourceFetcher:
+    _unverified_warning_shown = False
+
     def __init__(self, headers=None):
         self.request_headers = headers or {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
@@ -31,15 +33,25 @@ class ResourceFetcher:
 
     def create_ssl_context(self):
         try:
-            cafile = ssl.get_default_verify_paths().openssl_cafile
-            if not os.path.exists(cafile):
-                import certifi
-                cafile = certifi.where()
-            ssl_context = ssl.create_default_context(cafile=cafile)
+            import certifi
+            return ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            pass
+
+        try:
+            ssl_context = ssl.create_default_context()
+            capath = ssl.get_default_verify_paths().capath
+            if ssl_context.cert_store_stats().get("x509_ca") or (capath and os.path.isdir(capath) and os.listdir(capath)):
+                return ssl_context
+            error = "no CA certificates found"
         except Exception as e:
-            print("Failed to create SSL context: {}".format(e))
-            ssl_context = ssl._create_unverified_context()
-        return ssl_context
+            error = e
+
+        if not ResourceFetcher._unverified_warning_shown:
+            ResourceFetcher._unverified_warning_shown = True
+            print("Warning: HTTPS certificates cannot be verified on this system ({}).".format(error))
+            print("Downloads continue without certificate checks; files with a published SHA-256 are still verified.")
+        return ssl._create_unverified_context()
 
     def _make_request(self, resource_url, timeout=10):
         try:

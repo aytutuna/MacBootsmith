@@ -3,6 +3,8 @@
 #
 # Usage: tests/boot/run_qemu.sh <efi-dir>
 #   <efi-dir> is the folder that contains BOOT/ and OC/ (for example Results/EFI).
+#   The serial log stays at $SERIAL_LOG (default ./serial.log) so a later step can run
+#   python OpCore-Simplify.py --analyze-log serial.log on it.
 #
 # Needs: qemu-system-x86_64, OVMF, mtools, python3, curl.
 #
@@ -14,7 +16,7 @@ set -u
 # job log itself needs a login, so every diagnostic worth reading goes through here.
 annotate() {
     local kind="$1" title="$2" msg="$3"
-    msg="${msg//$''/}"
+    msg="${msg//$''/}"
     msg="${msg//'%'/%25}"
     msg="${msg//$'
 '/%0A}"
@@ -63,7 +65,12 @@ FAILURE_REGEXES=(
     "!!!! X64 Exception"
 )
 
-# 1. Fetch the DEBUG build from the same Dortania build-repo entry the release build came from.
+# 1. Fetch the DEBUG build from the same Dortania build-repo entry the release build came from,
+#    unless the EFI was built with the DEBUG option: a DEBUG OpenCore.efi carries its log strings.
+if grep -a -q "Ready for takeoff" "$EFI/OC/OpenCore.efi"; then
+    url="EFI as built (OpenCore.efi is already DEBUG)"
+    echo "OpenCore.efi is already a DEBUG build, keeping the EFI binaries"
+else
 DL="$WORK/dl"
 mkdir -p "$DL"
 url=$(curl -fsSL https://raw.githubusercontent.com/dortania/build-repo/builds/latest.json | python3 -c '
@@ -87,6 +94,7 @@ for f in BOOT/BOOTx64.efi OC/OpenCore.efi OC/Drivers/OpenRuntime.efi; do
     mkdir -p "$(dirname "$EFI/$f")"
     cp "$DBG/$f" "$EFI/$f"
 done
+fi
 
 # 2. Patch config.plist for logging and a visible picker.
 python3 - "$EFI/OC/config.plist" <<'PY'
@@ -177,7 +185,9 @@ wait "$QPID" 2>/dev/null
 
 # Strip CRs, and mask the generated platform identifiers: annotations and summaries
 # are public on a public repository.
-tr -d '' < "$SERIAL_LOG"     | sed -E 's/(Setting (SSN|MLB|ROM|system-id|SystemSerialNumber|SystemUUID|MLB)) [^ ]+/ <masked>/'     > "$SERIAL_LOG.clean" && mv "$SERIAL_LOG.clean" "$SERIAL_LOG"
+tr -d '\r' < "$SERIAL_LOG" \
+    | sed -E 's/(Setting (SSN|MLB|ROM|system-id|SystemSerialNumber|SystemUUID)) [^ ]+/\1 <masked>/' \
+    > "$SERIAL_LOG.clean" && mv "$SERIAL_LOG.clean" "$SERIAL_LOG"
 echo "================ serial.log ================"
 cat "$SERIAL_LOG"
 echo "============================================"

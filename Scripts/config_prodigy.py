@@ -19,6 +19,8 @@ bcmc_firmwares = {
 }
 bcmc_firmware_dir = "/usr/local/share/firmware/wifi/"
 cfg_lock_note = "CFG Lock: in the boot picker press Space to show hidden entries and run ControlMsrE2. If it reports UNLOCKED, the AppleXcpmCfgLock/AppleCpuPmCfgLock quirks can be turned off later; if LOCKED, leave them on."
+debug_target = 67
+debug_display_level = 2147483714
 vendor_quirk_fields = {
     "motherboard": ("Motherboard", "Name"),
     "chipset": ("Motherboard", "Chipset"),
@@ -723,6 +725,19 @@ class ConfigProdigy:
                 if note not in notes:
                     notes.append(note)
         return notes
+
+    def apply_debug_settings(self, config, debug):
+        if not debug:
+            return config
+
+        debug_settings = config["Misc"]["Debug"]
+        debug_settings["AppleDebug"] = True
+        debug_settings["ApplePanic"] = True
+        debug_settings["DisableWatchDog"] = True
+        debug_settings["Target"] = debug_target
+        debug_settings["DisplayLevel"] = debug_display_level
+        debug_settings["SysReport"] = False
+        return config
 
     def csr_active_config(self, macos_version):
         if self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version("20.0.0"):

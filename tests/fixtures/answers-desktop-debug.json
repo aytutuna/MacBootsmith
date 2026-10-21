@@ -1,0 +1,24 @@
+{
+    "report": "tests/fixtures/desktop/Report.json",
+    "usb_map": "tests/fixtures/desktop/USBMap.json",
+    "macos_version": "25.0.0",
+    "skip_recovery": true,
+    "postinstall_kit": "docs-only",
+    "debug": true,
+    "prompts": {
+        "Continue with OpenCore Legacy Patcher": "yes",
+        "Build EFI for UEFI": "yes",
+        "Select audio kext": "2",
+        "force load": "yes",
+        "combination": "1",
+        "Select a GPU device": "1",
+        "Select a WiFi device": "1",
+        "Select a Bluetooth device": "1",
+        "Select Intel Wi-Fi kext": "",
+        "Select kext for your AMD": "",
+        "codec layout": "7",
+        "scan for WiFi profiles": "no",
+        "Press Enter": ""
+    },
+    "default": ""
+}
