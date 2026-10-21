@@ -19,8 +19,9 @@ CI runs: https://github.com/aytutuna/MacBootsmith/actions
 5. macOS recovery download from Apple's servers using macrecovery.
 6. USB installer creation with diskpart: FAT32 partition, EFI and recovery copied and verified with SHA-256. Only USB-bus disks are offered, and you must confirm the erase.
 7. BIOS checklist for the detected platform: the firmware settings to disable and enable before booting the installer.
+8. USB port mapping on the target machine: every controller and root-hub port is listed through Windows' USB hub interface, you plug a device into each port you want, and the build turns the selection into a UTBMap kext in place of the placeholder map.
 
-Planned, not implemented yet: USB port mapping, a post-install kit on the USB drive, and a graphical interface. See `docs/reference/gaps.md` for the ranked list.
+Planned, not implemented yet: a post-install kit on the USB drive and a graphical interface. See `docs/reference/gaps.md` for the ranked list.
 
 ## What it does not do
 
@@ -46,9 +47,10 @@ Run `OpCore-Simplify.bat` as administrator. The main menu offers:
 3. Customize ACPI Patch: review or change the ACPI patches.
 4. Customize Kexts: review or change the kext selection.
 5. Customize SMBIOS Model: pick the Mac model to present.
-6. Build OpenCore EFI: write the EFI and run ocvalidate on it.
-7. Download macOS Recovery: fetch the recovery image for the chosen release.
-8. Create USB Installer: format a USB drive and write the installer, or copy only the EFI to an existing drive.
+6. USB Port Mapping: discover the ports on this machine and choose which ones macOS gets (at most 15 per controller).
+7. Build OpenCore EFI: write the EFI and run ocvalidate on it.
+8. Download macOS Recovery: fetch the recovery image for the chosen release.
+9. Create USB Installer: format a USB drive and write the installer, or copy only the EFI to an existing drive.
 
 Then boot from the USB and work through the on-screen BIOS checklist.
 

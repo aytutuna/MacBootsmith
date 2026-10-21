@@ -27,6 +27,7 @@ class KextMaestro:
         ]
         self.ock_files_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "OCK_Files")
         self.kexts = kext_data.kexts
+        self.usb_map_replaced_default = False
         
     def extract_pci_id(self, kext_path):
         if not os.path.exists(kext_path):
@@ -131,15 +132,32 @@ class KextMaestro:
 
         return True
 
-    def select_required_kexts(self, hardware_report, macos_version, needs_oclp, acpi_patches):
+    def usb_kext_names(self, usb_map=False):
+        return ["USBToolBox"] if usb_map else ["UTBDefault"]
+
+    def apply_usb_map(self, macos_version, usb_map):
+        default_index = kext_data.kext_index_by_name.get("UTBDefault")
+        toolbox_index = kext_data.kext_index_by_name.get("USBToolBox")
+        if usb_map:
+            if self.kexts[default_index].checked:
+                self.uncheck_kext(default_index)
+                self.usb_map_replaced_default = True
+            return self.check_kext(toolbox_index, macos_version)
+        if self.usb_map_replaced_default:
+            self.usb_map_replaced_default = False
+            return self.check_kext(default_index, macos_version)
+        return True
+
+    def select_required_kexts(self, hardware_report, macos_version, needs_oclp, acpi_patches, usb_map=False):
         self.utils.head("Select Required Kernel Extensions")
         print("")
         print("Checking for required kernel extensions...")
 
         for kext in self.kexts:
             kext.checked = kext.required
+        self.usb_map_replaced_default = False
 
-        selected_kexts = ["UTBDefault"]
+        selected_kexts = self.usb_kext_names(usb_map)
 
         if "Intel" in hardware_report.get("CPU").get("Manufacturer"):
             selected_kexts.extend(("SMCProcessor", "SMCSuperIO"))

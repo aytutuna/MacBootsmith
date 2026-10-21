@@ -11,11 +11,13 @@ from Scripts import recovery_fetcher
 from Scripts import report_validator
 from Scripts import run
 from Scripts import smbios
+from Scripts import usb_mapper
 from Scripts import usb_writer
 from Scripts import utils
 from Scripts import validator
 import updater
 import os
+import plistlib
 import sys
 import re
 import json
@@ -38,6 +40,9 @@ class OCPE:
         self.rf = recovery_fetcher.RecoveryFetcher()
         self.val = validator.ConfigValidator()
         self.usb = usb_writer.USBWriter()
+        self.usb_mapper = usb_mapper.USBMapper()
+        self.usb_map_override = None
+        self.usb_map_source = None
         self.bios_checklist = bios_checklist.BIOSChecklist()
         self.r = run.Run()
         self.result_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Results")
@@ -212,6 +217,92 @@ class OCPE:
                 elif self.u.parse_darwin_version(native_macos_version[0]) <= self.u.parse_darwin_version(target_version) <= self.u.parse_darwin_version(native_macos_version[-1]):
                     return target_version
 
+    def select_usb_map_source(self, hardware_report, announce=True):
+        def say(text):
+            if announce:
+                print(text)
+
+        override = self.usb_map_override
+        if override is False:
+            return None
+
+        explicit = bool(override)
+        path = override if explicit else self.usb_mapper.map_path
+        if explicit and os.path.isdir(path):
+            plist_path = os.path.join(path, "Contents", "Info.plist")
+            if not os.path.isfile(plist_path):
+                raise Exception("The USB map {} has no Contents/Info.plist.".format(path))
+            if not os.path.basename(os.path.normpath(path)).lower().endswith(".kext"):
+                raise Exception("The USB map folder {} must have a name ending in .kext.".format(path))
+            try:
+                with open(plist_path, "rb") as plist_file:
+                    info = plistlib.load(plist_file)
+            except Exception:
+                raise Exception("The USB map {} has an unreadable Info.plist.".format(path))
+            if usb_mapper.USBTOOLBOX_IDENTIFIER not in (info.get("OSBundleLibraries") or {}):
+                raise Exception("The USB map {} does not depend on {}; only USBToolBox maps are supported.".format(path, usb_mapper.USBTOOLBOX_IDENTIFIER))
+            say("Using the USB map kext {}.".format(path))
+            return {"kind": "kext", "path": path}
+
+        if explicit and not os.path.isfile(path):
+            raise Exception("The USB map {} does not exist.".format(path))
+        data = self.usb_mapper.load_saved(path)
+        if data is None:
+            if explicit:
+                raise Exception("Could not load the USB map {}.".format(path))
+            return None
+
+        errors = usb_mapper.validate_selection(data)
+        if errors:
+            if explicit:
+                raise Exception("The USB map {} is not usable: {}".format(path, " ".join(errors)))
+            say("Ignoring the saved USB map {}: {}".format(path, " ".join(errors)))
+            return None
+
+        matched, unmatched = usb_mapper.report_matches(data, hardware_report)
+        if not matched and not explicit:
+            say("The saved USB map {} does not match the USB controllers in this hardware report, so UTBDefault is used instead.".format(path))
+            return None
+        for controller in unmatched:
+            say("Note: {} from the USB map is not listed in the hardware report.".format(controller.get("name")))
+        say("Using the USB map {}.".format(path))
+        return {"kind": "json", "path": path, "data": data}
+
+    def prepare_usb_map(self, hardware_report, macos_version, announce=True):
+        self.usb_map_source = self.select_usb_map_source(hardware_report, announce)
+        self.k.apply_usb_map(macos_version, self.usb_map_source is not None)
+        return self.usb_map_source
+
+    def install_usb_map(self, kexts_directory):
+        source = self.usb_map_source
+        if not source:
+            return None
+        self.u.create_folder(kexts_directory)
+        if source["kind"] == "kext":
+            destination = os.path.join(kexts_directory, os.path.basename(os.path.normpath(source["path"])))
+            shutil.copytree(source["path"], destination, dirs_exist_ok=True)
+            return destination
+        return self.usb_mapper.build_kext(source["data"], kexts_directory)
+
+    def usb_port_mapping(self, hardware_report):
+        self.u.head("USB Port Mapping")
+        print("")
+        if os.name != "nt":
+            print(self.usb_mapper.unsupported_message)
+            print("")
+            self.u.request_input("Press Enter to go back...")
+            return None
+
+        selection = self.usb_mapper.discover()
+        if selection:
+            matched, unmatched = usb_mapper.report_matches(selection, hardware_report)
+            if not matched:
+                print("\033[1;93mWarning:\033[0m the mapped controllers do not match the selected hardware report.")
+                print("Map the ports on the machine the hardware report came from.")
+                print("")
+            self.u.request_input("Press Enter to main menu...")
+        return selection
+
     def build_opencore_efi(self, hardware_report, disabled_devices, smbios_model, macos_version, needs_oclp):
         steps = [
             "Copying EFI base to results folder",
@@ -271,8 +362,17 @@ class OCPE:
 
         self.u.progress_bar(title, steps, 2)
         kexts_directory = os.path.join(self.result_dir, "EFI", "OC", "Kexts")
+        self.prepare_usb_map(hardware_report, macos_version, announce=False)
+        try:
+            usb_map_kext = self.install_usb_map(kexts_directory)
+        except ValueError as error:
+            raise Exception("Could not build the USB map: {}".format(error))
         self.k.install_kexts_to_efi(macos_version, kexts_directory)
         config_data["Kernel"]["Add"] = self.k.load_kexts(hardware_report, macos_version, kexts_directory)
+        if usb_map_kext:
+            usb_map_bundle = os.path.basename(usb_map_kext)
+            if not any(entry.get("BundlePath") == usb_map_bundle for entry in config_data["Kernel"]["Add"]):
+                raise Exception("{} was copied to {} but is missing from Kernel -> Add.".format(usb_map_bundle, kexts_directory))
 
         self.u.progress_bar(title, steps, 3)
         self.co.genarate(hardware_report, disabled_devices, smbios_model, macos_version, needs_oclp, self.k.kexts, config_data)
@@ -409,15 +509,16 @@ class OCPE:
                     print("    - {}".format(item))
         print("")
         
+        kexts_folder = "EFI\\OC\\Kexts" if os.name == "nt" else "EFI/OC/Kexts"
         print("* USB Mapping:")
-        print("    - Use USBToolBox tool to map USB ports.")
-        print("    - Add created UTBMap.kext into the {} folder.".format("EFI\\OC\\Kexts" if os.name == "nt" else "EFI/OC/Kexts"))
-        print("    - Remove UTBDefault.kext in the {} folder.".format("EFI\\OC\\Kexts" if os.name == "nt" else "EFI/OC/Kexts"))
-        print("    - Edit config.plist:")
-        print("        - Use ProperTree to open your config.plist.")
-        print("        - Run OC Snapshot by pressing Command/Ctrl + R.")
-        print("        - If you have more than 15 ports on a single controller, enable the XhciPortLimit patch.")
-        print("        - Save the file when finished.")
+        if self.usb_map_source:
+            map_kext = os.path.basename(os.path.normpath(self.usb_map_source["path"])) if self.usb_map_source["kind"] == "kext" else usb_mapper.KEXT_NAME
+            print("    - {} from your USB map is in the {} folder and replaces UTBDefault.kext.".format(map_kext, kexts_folder))
+            print("    - After installing macOS, check that every mapped port works. If one does not, map again with option 6 and rebuild.")
+        else:
+            print("    - Map USB ports with option 6 (USB Port Mapping) before building, then build again.")
+            print("    - Until then UTBDefault.kext enables every port, which can go past the 15-port limit per controller.")
+        print("    - XhciPortLimit does not work on macOS 11.3 and newer, so do not rely on it to lift the 15-port limit.")
         print("")
         self.u.request_input()
         self.u.open_folder(self.result_dir)
@@ -457,6 +558,14 @@ class OCPE:
         self.u.set_headless(answers)
 
         self.ac.dsdt = self.ac.acpi.acpi_tables = None
+
+        usb_map = answers.get("usb_map")
+        if usb_map is False or (isinstance(usb_map, str) and usb_map.strip().lower() == "none"):
+            self.usb_map_override = False
+        elif isinstance(usb_map, str) and usb_map.strip():
+            self.usb_map_override = self.resolve_headless_path(usb_map)
+        elif usb_map is not None:
+            raise Exception('usb_map must be a path, false or "none".')
 
         report = answers.get("report")
         acpi_path = answers.get("acpi")
@@ -516,6 +625,8 @@ class OCPE:
             print("{} needs OpenCore Legacy Patcher on this hardware and it was declined.".format(os_data.get_macos_name_by_darwin(macos_version)))
             return self.print_headless_summary(3, smbios_model)
 
+        print("")
+        self.prepare_usb_map(customized_hardware, macos_version)
         if not self.o.gather_bootloader_kexts(self.k.kexts, macos_version):
             raise Exception("Could not gather OpenCorePkg and kexts.")
 
@@ -524,6 +635,12 @@ class OCPE:
         config_file = os.path.join(self.result_dir, "EFI", "OC", "config.plist")
         if not os.path.exists(config_file):
             raise Exception("The build did not produce {}.".format(config_file))
+
+        print("")
+        if self.usb_map_source:
+            print("USB map: {} -> {}".format(self.usb_map_source["path"], os.path.join(self.result_dir, "EFI", "OC", "Kexts")))
+        else:
+            print("USB map: none, UTBDefault.kext is used")
 
         bios_requirements = self.check_bios_requirements(hardware_report, customized_hardware)
         print("")
@@ -569,9 +686,10 @@ class OCPE:
             print("3. Customize ACPI Patch")
             print("4. Customize Kexts")
             print("5. Customize SMBIOS Model")
-            print("6. Build OpenCore EFI")
-            print("7. Download macOS Recovery")
-            print("8. Create USB Installer")
+            print("6. USB Port Mapping")
+            print("7. Build OpenCore EFI")
+            print("8. Download macOS Recovery")
+            print("9. Create USB Installer")
             print("")
             print("Q. Quit")
             print("")
@@ -592,7 +710,7 @@ class OCPE:
                 needs_oclp = self.k.select_required_kexts(customized_hardware, macos_version, needs_oclp, self.ac.patches)
                 self.s.smbios_specific_options(customized_hardware, smbios_model, macos_version, self.ac.patches, self.k)
 
-            if option == "7":
+            if option == "8":
                 if not macos_version:
                     self.u.head()
                     print("\n\n")
@@ -614,7 +732,7 @@ class OCPE:
                 self.u.request_input("Press Enter to main menu...")
                 continue
 
-            if option == "8":
+            if option == "9":
                 self.u.head("Create USB Installer")
                 print("")
                 print("1. Format a USB drive and write the installer")
@@ -655,6 +773,8 @@ class OCPE:
                 smbios_model = self.s.customize_smbios_model(customized_hardware, smbios_model, macos_version)
                 self.s.smbios_specific_options(customized_hardware, smbios_model, macos_version, self.ac.patches, self.k)
             elif option == "6":
+                self.usb_port_mapping(hardware_report)
+            elif option == "7":
                 if needs_oclp and not self.show_oclp_warning(macos_version):
                     macos_version = self.select_macos_version(hardware_report, native_macos_version, ocl_patched_macos_version)
                     customized_hardware, disabled_devices, needs_oclp = self.h.hardware_customization(hardware_report, macos_version)
@@ -664,6 +784,7 @@ class OCPE:
                     continue
 
                 try:
+                    self.prepare_usb_map(customized_hardware, macos_version)
                     self.o.gather_bootloader_kexts(self.k.kexts, macos_version)
                 except Exception as e:
                     print("\033[91mError: {}\033[0m".format(e))

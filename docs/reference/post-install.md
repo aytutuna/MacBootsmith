@@ -31,6 +31,12 @@ Sources: `_ref/dortania-post-install/universal/oc2hdd.md`, `multiboot/bootstrap.
 
 ## 2. USB mapping
 
+### What the app does
+
+Main-menu option 6 (USB Port Mapping, Windows only, on the target machine) lists every USB controller and root-hub port, including empty ones, through Windows' own USB hub interface: port speed (USB 2 or USB 3 half), companion port, Type-C and user-connectable flags, and the device plugged in now. You plug a device into each port and refresh; ports that have seen a device stay marked and are preselected. You can then toggle ports, set the connector type (`t <port> <code>`, same codes as below), mark ports internal, and the app refuses more than 15 ports per controller. The selection is saved as `SysReport/USBMap.json`. Every later build turns it into `UTBMap.kext` (USBToolBox format) in `EFI/OC/Kexts`, keeps `USBToolBox.kext`, drops `UTBDefault.kext` and adds the map to `Kernel -> Add`. A saved map whose controllers do not match the selected hardware report is ignored. Headless builds accept `"usb_map": "<USBMap.json or UTBMap.kext>"` in the answers file.
+
+Still manual: the connector types are guesses from what Windows reports (check Type-C with and without switch, and internal headers), and the map has to be verified after install: boot macOS, plug a USB 2 and a USB 3 device into every port, confirm each one works at the expected speed, then map again and rebuild if a port is missing. Leave `XhciPortLimit` off; it does not work on macOS 11.3 and newer.
+
 ### Why it is needed
 
 - macOS guesses port types poorly: ports run at 2.0 instead of 3.x, some ports do not work, Bluetooth may fail, Handoff and sleep can break, hot-plug breaks, and `XhciPortLimit` can even corrupt data.
@@ -68,7 +74,7 @@ Sources: `_ref/dortania-post-install/usb/{system-preparation.md,intel-mapping/in
 
 ### UTBDefault vs UTBMap
 
-Not covered by the listed sources. The install guide `ktext.md` describes USBToolBox: a tool for Windows and macOS (Linux in progress); can build a map using either the USBToolBox kext or native Apple kexts (`AppleUSBHostMergeProperties`); several matching methods; companion ports supported on Windows. Outside the listed sources, the vendored `_ref/usbtoolbox/README.md` (step 8) says the built map goes into `EFI/OC/Kexts`, the USBToolBox kext must be present if the map uses it, and `UTBDefault.kext` must be removed. The app's own `before_using_efi` text says the same (`OpCore-Simplify.py`). The meaning of "UTBDefault" (a placeholder default map) versus "UTBMap" (the user's built map) is therefore taken from the tool and the app, not from the guides.
+Not covered by the listed sources. The install guide `ktext.md` describes USBToolBox: a tool for Windows and macOS (Linux in progress); can build a map using either the USBToolBox kext or native Apple kexts (`AppleUSBHostMergeProperties`); several matching methods; companion ports supported on Windows. Outside the listed sources, the vendored `_ref/usbtoolbox/README.md` (step 8) says the built map goes into `EFI/OC/Kexts`, the USBToolBox kext must be present if the map uses it, and `UTBDefault.kext` must be removed. The app follows the same rule when it builds the map itself (see "What the app does" above). The meaning of "UTBDefault" (a placeholder default map) versus "UTBMap" (the user's built map) is therefore taken from the tool and the app, not from the guides.
 
 ### Related USB fixes the guide lists
 

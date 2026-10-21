@@ -1,0 +1,567 @@
+{
+    "version": 1,
+    "controllers": [
+        {
+            "name": "Intel(R) USB 3.1 eXtensible Host Controller - 1.10 (Microsoft)",
+            "class": "XHCI",
+            "identifiers": {
+                "instance_id": "PCI\\VEN_8086&DEV_A3AF&SUBSYS_50071458&REV_00\\3&11583659&0&A0",
+                "pci_id": [
+                    "8086",
+                    "a3af",
+                    "1458",
+                    "5007"
+                ],
+                "acpi_path": "\\_SB.PCI0.XHC_",
+                "bdf": [
+                    0,
+                    20,
+                    0
+                ]
+            },
+            "hub_name": "usb#root_hub30#4&1b2c3d4e&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+            "port_count": 26,
+            "ports": [
+                {
+                    "index": 1,
+                    "name": "Port 1",
+                    "class": "HighSpeed",
+                    "type": null,
+                    "guessed": 3,
+                    "selected": true,
+                    "comment": "Rear USB 3 (top left) USB 2 half",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "usb#root_hub30#4&1b2c3d4e&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+                        "port": 17
+                    },
+                    "seen": [
+                        "SanDisk Cruzer Blade"
+                    ]
+                },
+                {
+                    "index": 2,
+                    "name": "Port 2",
+                    "class": "HighSpeed",
+                    "type": null,
+                    "guessed": 3,
+                    "selected": true,
+                    "comment": "Rear USB 3 (top right) USB 2 half",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "usb#root_hub30#4&1b2c3d4e&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+                        "port": 18
+                    },
+                    "seen": [
+                        "SanDisk Cruzer Blade"
+                    ]
+                },
+                {
+                    "index": 3,
+                    "name": "Port 3",
+                    "class": "HighSpeed",
+                    "type": null,
+                    "guessed": 3,
+                    "selected": true,
+                    "comment": "Rear USB 3 (middle left) USB 2 half",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "usb#root_hub30#4&1b2c3d4e&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+                        "port": 19
+                    },
+                    "seen": [
+                        "SanDisk Cruzer Blade"
+                    ]
+                },
+                {
+                    "index": 4,
+                    "name": "Port 4",
+                    "class": "HighSpeed",
+                    "type": null,
+                    "guessed": 3,
+                    "selected": true,
+                    "comment": "Rear USB 3 (middle right) USB 2 half",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "usb#root_hub30#4&1b2c3d4e&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+                        "port": 20
+                    },
+                    "seen": [
+                        "SanDisk Cruzer Blade"
+                    ]
+                },
+                {
+                    "index": 5,
+                    "name": "Port 5",
+                    "class": "HighSpeed",
+                    "type": null,
+                    "guessed": 3,
+                    "selected": true,
+                    "comment": "Front USB 3 (left) USB 2 half",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "usb#root_hub30#4&1b2c3d4e&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+                        "port": 21
+                    },
+                    "seen": [
+                        "SanDisk Cruzer Blade"
+                    ]
+                },
+                {
+                    "index": 6,
+                    "name": "Port 6",
+                    "class": "HighSpeed",
+                    "type": null,
+                    "guessed": 3,
+                    "selected": true,
+                    "comment": "Front USB 3 (right) USB 2 half",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "usb#root_hub30#4&1b2c3d4e&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+                        "port": 22
+                    },
+                    "seen": [
+                        "SanDisk Cruzer Blade"
+                    ]
+                },
+                {
+                    "index": 7,
+                    "name": "Port 7",
+                    "class": "HighSpeed",
+                    "type": null,
+                    "guessed": 0,
+                    "selected": false,
+                    "comment": "",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "",
+                        "port": 0
+                    },
+                    "seen": []
+                },
+                {
+                    "index": 8,
+                    "name": "Port 8",
+                    "class": "HighSpeed",
+                    "type": null,
+                    "guessed": 0,
+                    "selected": false,
+                    "comment": "",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "",
+                        "port": 0
+                    },
+                    "seen": []
+                },
+                {
+                    "index": 9,
+                    "name": "Port 9",
+                    "class": "HighSpeed",
+                    "type": null,
+                    "guessed": 0,
+                    "selected": false,
+                    "comment": "",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "",
+                        "port": 0
+                    },
+                    "seen": []
+                },
+                {
+                    "index": 10,
+                    "name": "Port 10",
+                    "class": "HighSpeed",
+                    "type": 255,
+                    "guessed": 255,
+                    "selected": true,
+                    "comment": "Bluetooth module (internal header)",
+                    "type_c": false,
+                    "user_connectable": false,
+                    "companion": {
+                        "hub": "",
+                        "port": 0
+                    },
+                    "seen": [
+                        "Intel(R) Wireless Bluetooth(R)"
+                    ]
+                },
+                {
+                    "index": 11,
+                    "name": "Port 11",
+                    "class": "HighSpeed",
+                    "type": null,
+                    "guessed": 0,
+                    "selected": true,
+                    "comment": "Front USB 2 header",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "",
+                        "port": 0
+                    },
+                    "seen": [
+                        "Logitech USB Receiver"
+                    ]
+                },
+                {
+                    "index": 12,
+                    "name": "Port 12",
+                    "class": "HighSpeed",
+                    "type": null,
+                    "guessed": 0,
+                    "selected": false,
+                    "comment": "",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "",
+                        "port": 0
+                    },
+                    "seen": []
+                },
+                {
+                    "index": 13,
+                    "name": "Port 13",
+                    "class": "HighSpeed",
+                    "type": null,
+                    "guessed": 0,
+                    "selected": false,
+                    "comment": "",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "",
+                        "port": 0
+                    },
+                    "seen": []
+                },
+                {
+                    "index": 14,
+                    "name": "Port 14",
+                    "class": "HighSpeed",
+                    "type": null,
+                    "guessed": 0,
+                    "selected": false,
+                    "comment": "",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "",
+                        "port": 0
+                    },
+                    "seen": []
+                },
+                {
+                    "index": 15,
+                    "name": "Port 15",
+                    "class": "HighSpeed",
+                    "type": null,
+                    "guessed": 255,
+                    "selected": false,
+                    "comment": "",
+                    "type_c": false,
+                    "user_connectable": false,
+                    "companion": {
+                        "hub": "",
+                        "port": 0
+                    },
+                    "seen": []
+                },
+                {
+                    "index": 16,
+                    "name": "Port 16",
+                    "class": "HighSpeed",
+                    "type": null,
+                    "guessed": 255,
+                    "selected": false,
+                    "comment": "",
+                    "type_c": false,
+                    "user_connectable": false,
+                    "companion": {
+                        "hub": "",
+                        "port": 0
+                    },
+                    "seen": []
+                },
+                {
+                    "index": 17,
+                    "name": "Port 17",
+                    "class": "SuperSpeed",
+                    "type": null,
+                    "guessed": 3,
+                    "selected": true,
+                    "comment": "Rear USB 3 (top left) USB 3 half",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "usb#root_hub30#4&1b2c3d4e&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+                        "port": 1
+                    },
+                    "seen": [
+                        "Samsung T7"
+                    ]
+                },
+                {
+                    "index": 18,
+                    "name": "Port 18",
+                    "class": "SuperSpeed",
+                    "type": null,
+                    "guessed": 3,
+                    "selected": true,
+                    "comment": "Rear USB 3 (top right) USB 3 half",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "usb#root_hub30#4&1b2c3d4e&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+                        "port": 2
+                    },
+                    "seen": [
+                        "Samsung T7"
+                    ]
+                },
+                {
+                    "index": 19,
+                    "name": "Port 19",
+                    "class": "SuperSpeed",
+                    "type": null,
+                    "guessed": 3,
+                    "selected": true,
+                    "comment": "Rear USB 3 (middle left) USB 3 half",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "usb#root_hub30#4&1b2c3d4e&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+                        "port": 3
+                    },
+                    "seen": [
+                        "Samsung T7"
+                    ]
+                },
+                {
+                    "index": 20,
+                    "name": "Port 20",
+                    "class": "SuperSpeed",
+                    "type": null,
+                    "guessed": 3,
+                    "selected": true,
+                    "comment": "Rear USB 3 (middle right) USB 3 half",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "usb#root_hub30#4&1b2c3d4e&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+                        "port": 4
+                    },
+                    "seen": [
+                        "Samsung T7"
+                    ]
+                },
+                {
+                    "index": 21,
+                    "name": "Port 21",
+                    "class": "SuperSpeed",
+                    "type": null,
+                    "guessed": 3,
+                    "selected": true,
+                    "comment": "Front USB 3 (left) USB 3 half",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "usb#root_hub30#4&1b2c3d4e&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+                        "port": 5
+                    },
+                    "seen": [
+                        "Samsung T7"
+                    ]
+                },
+                {
+                    "index": 22,
+                    "name": "Port 22",
+                    "class": "SuperSpeed",
+                    "type": null,
+                    "guessed": 3,
+                    "selected": true,
+                    "comment": "Front USB 3 (right) USB 3 half",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "usb#root_hub30#4&1b2c3d4e&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+                        "port": 6
+                    },
+                    "seen": [
+                        "Samsung T7"
+                    ]
+                },
+                {
+                    "index": 23,
+                    "name": "Port 23",
+                    "class": "SuperSpeed",
+                    "type": null,
+                    "guessed": 255,
+                    "selected": false,
+                    "comment": "",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "",
+                        "port": 0
+                    },
+                    "seen": []
+                },
+                {
+                    "index": 24,
+                    "name": "Port 24",
+                    "class": "SuperSpeed",
+                    "type": null,
+                    "guessed": 255,
+                    "selected": false,
+                    "comment": "",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "",
+                        "port": 0
+                    },
+                    "seen": []
+                },
+                {
+                    "index": 25,
+                    "name": "Port 25",
+                    "class": "SuperSpeed",
+                    "type": null,
+                    "guessed": 255,
+                    "selected": false,
+                    "comment": "",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "",
+                        "port": 0
+                    },
+                    "seen": []
+                },
+                {
+                    "index": 26,
+                    "name": "Port 26",
+                    "class": "SuperSpeed",
+                    "type": null,
+                    "guessed": 255,
+                    "selected": false,
+                    "comment": "",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "",
+                        "port": 0
+                    },
+                    "seen": []
+                }
+            ]
+        },
+        {
+            "name": "ASMedia USB 3.1 eXtensible Host Controller - 1.10 (Microsoft)",
+            "class": "XHCI",
+            "identifiers": {
+                "instance_id": "PCI\\VEN_1B21&DEV_2142&SUBSYS_50071458&REV_00\\4&2B5D2E1&0&00E4",
+                "pci_id": [
+                    "1b21",
+                    "2142",
+                    "1458",
+                    "5007"
+                ],
+                "acpi_path": "\\_SB.PCI0.RP05.PXSX",
+                "bdf": [
+                    3,
+                    0,
+                    0
+                ]
+            },
+            "hub_name": "usb#root_hub30#5&2a3b4c5d&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+            "port_count": 4,
+            "ports": [
+                {
+                    "index": 1,
+                    "name": "Port 1",
+                    "class": "HighSpeed",
+                    "type": null,
+                    "guessed": 9,
+                    "selected": true,
+                    "comment": "Rear Type-C USB 2 half",
+                    "type_c": true,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "usb#root_hub30#5&2a3b4c5d&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+                        "port": 3
+                    },
+                    "seen": [
+                        "SanDisk Ultra Dual Drive USB Type-C"
+                    ]
+                },
+                {
+                    "index": 2,
+                    "name": "Port 2",
+                    "class": "HighSpeed",
+                    "type": null,
+                    "guessed": 3,
+                    "selected": true,
+                    "comment": "Rear red Type-A USB 2 half",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "usb#root_hub30#5&2a3b4c5d&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+                        "port": 4
+                    },
+                    "seen": [
+                        "SanDisk Cruzer Blade"
+                    ]
+                },
+                {
+                    "index": 3,
+                    "name": "Port 3",
+                    "class": "SuperSpeed",
+                    "type": null,
+                    "guessed": 9,
+                    "selected": true,
+                    "comment": "Rear Type-C USB 3 half",
+                    "type_c": true,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "usb#root_hub30#5&2a3b4c5d&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+                        "port": 1
+                    },
+                    "seen": [
+                        "Samsung T7"
+                    ]
+                },
+                {
+                    "index": 4,
+                    "name": "Port 4",
+                    "class": "SuperSpeed",
+                    "type": null,
+                    "guessed": 3,
+                    "selected": true,
+                    "comment": "Rear red Type-A USB 3 half",
+                    "type_c": false,
+                    "user_connectable": true,
+                    "companion": {
+                        "hub": "usb#root_hub30#5&2a3b4c5d&0&0#{f18a0e88-c30c-11d0-8815-00a0c906bed8}",
+                        "port": 2
+                    },
+                    "seen": [
+                        "Samsung T7"
+                    ]
+                }
+            ]
+        }
+    ]
+}
