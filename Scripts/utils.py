@@ -9,6 +9,9 @@ import subprocess
 import pathlib
 import zipfile
 import tempfile
+import threading
+
+ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 class HeadlessExit(BaseException):
     pass
@@ -16,7 +19,75 @@ class HeadlessExit(BaseException):
 class HeadlessPromptLoop(BaseException):
     pass
 
+class GuiExit(BaseException):
+    def __init__(self, message="Program exit requested", reason="exit"):
+        super().__init__(message)
+        self.reason = reason
+
+class OutputProxy:
+    def __init__(self, fallback=None):
+        self.fallback = fallback
+
+    @property
+    def encoding(self):
+        return getattr(self.fallback, "encoding", None) or "utf-8"
+
+    @property
+    def errors(self):
+        return getattr(self.fallback, "errors", None) or "replace"
+
+    def write(self, text):
+        if isinstance(text, bytes):
+            text = text.decode("utf-8", "replace")
+        elif not isinstance(text, str):
+            text = str(text)
+        Utils.capture_output(text)
+        sink = Utils.output_sink
+        if sink is not None:
+            sink(text)
+        elif self.fallback is not None:
+            self.fallback.write(text)
+        return len(text)
+
+    def writelines(self, lines):
+        for line in lines:
+            self.write(line)
+
+    def flush(self):
+        if Utils.output_sink is None and self.fallback is not None:
+            try:
+                self.fallback.flush()
+            except Exception:
+                pass
+
+    def isatty(self):
+        if Utils.output_sink is not None or self.fallback is None:
+            return False
+        try:
+            return self.fallback.isatty()
+        except Exception:
+            return False
+
+    def writable(self):
+        return True
+
+    def readable(self):
+        return False
+
+    def fileno(self):
+        if self.fallback is None:
+            raise OSError("no file descriptor")
+        return self.fallback.fileno()
+
 class Utils:
+    prompt_handler = None
+    output_sink = None
+    progress_handler = None
+    capture_limit = 20000
+    _captured = []
+    _captured_size = 0
+    _capture_lock = threading.Lock()
+
     headless_answers = None
     headless_repeat_limit = 20
     headless_prompt_limit = 50
@@ -40,6 +111,54 @@ class Utils:
     @classmethod
     def is_headless(cls):
         return cls.headless_answers is not None
+
+    @classmethod
+    def set_prompt_handler(cls, handler):
+        cls.prompt_handler = handler
+        cls.take_captured()
+
+    @classmethod
+    def set_output_sink(cls, sink):
+        cls.output_sink = sink
+
+    @classmethod
+    def set_progress_handler(cls, handler):
+        cls.progress_handler = handler
+
+    @classmethod
+    def is_gui(cls):
+        return cls.prompt_handler is not None
+
+    @classmethod
+    def install_output_proxy(cls):
+        previous = (sys.stdout, sys.stderr)
+        if not isinstance(sys.stdout, OutputProxy):
+            sys.stdout = OutputProxy(sys.stdout)
+        if not isinstance(sys.stderr, OutputProxy):
+            sys.stderr = OutputProxy(sys.stderr)
+
+        def restore():
+            sys.stdout, sys.stderr = previous
+        return restore
+
+    @classmethod
+    def capture_output(cls, text):
+        if cls.prompt_handler is None or not text:
+            return
+        with cls._capture_lock:
+            cls._captured.append(text)
+            cls._captured_size += len(text)
+            while cls._captured_size > cls.capture_limit and len(cls._captured) > 1:
+                cls._captured_size -= len(cls._captured.pop(0))
+
+    @classmethod
+    def take_captured(cls):
+        with cls._capture_lock:
+            text = "".join(cls._captured)
+            cls._captured = []
+            cls._captured_size = 0
+        text = ANSI_ESCAPE.sub("", text)
+        return text[-cls.capture_limit:]
 
     def headless_answer(self, prompt):
         answers = Utils.headless_answers
@@ -207,7 +326,7 @@ class Utils:
         return major, minor, patch
     
     def open_folder(self, folder_path):
-        if Utils.is_headless():
+        if Utils.is_headless() or Utils.is_gui():
             return
 
         if os.name == 'posix':
@@ -222,6 +341,15 @@ class Utils:
         if Utils.is_headless():
             return self.headless_answer(prompt)
 
+        handler = Utils.prompt_handler
+        if handler is not None:
+            prompt_text = str(prompt)
+            answer = handler(prompt_text, Utils.take_captured())
+            answer = "" if answer is None else str(answer)
+            print("{}{}".format(prompt_text, answer or "[Enter]"))
+            Utils.take_captured()
+            return answer
+
         if sys.version_info[0] < 3:
             user_response = raw_input(prompt)
         else:
@@ -233,6 +361,14 @@ class Utils:
         return user_response
 
     def progress_bar(self, title, steps, current_step_index, done=False):
+        if Utils.progress_handler is not None:
+            Utils.progress_handler(title, list(steps), current_step_index, done)
+            if done:
+                print("{}: done".format(title))
+            elif 0 <= current_step_index < len(steps):
+                print("[{}/{}] {}...".format(current_step_index + 1, len(steps), steps[current_step_index]))
+            return
+
         self.head(title)
         print("")
         if done:
@@ -254,6 +390,12 @@ class Utils:
             print("== {} ==".format(text if text is not None else self.script_name))
             return
 
+        if Utils.is_gui():
+            Utils.take_captured()
+            print("")
+            print("== {} ==".format(text if text is not None else self.script_name))
+            return
+
         if resize:
             self.adjust_window_size()
         os.system('cls' if os.name=='nt' else 'clear')
@@ -268,7 +410,7 @@ class Utils:
         print("╔{}╗\n║{}║\n╚{}╝".format(separator, title, separator))
     
     def adjust_window_size(self, content=""):
-        if Utils.is_headless():
+        if Utils.is_headless() or Utils.is_gui():
             return
 
         lines = content.splitlines()
@@ -279,6 +421,8 @@ class Utils:
     def exit_program(self):
         if Utils.is_headless():
             raise HeadlessExit("Program exit requested")
+        if Utils.is_gui():
+            raise GuiExit("Program exit requested")
 
         self.head()
         width = 68

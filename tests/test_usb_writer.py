@@ -101,5 +101,35 @@ class PowerShellParsingTest(unittest.TestCase):
         self.assertEqual(self.list_disks(disk(8, BusType="NVMe")), [])
 
 
+class ExpectedDiskTest(unittest.TestCase):
+    def run_installer(self, listed, expected):
+        writer = usb_writer.USBWriter()
+        prompts = []
+        writer.utils.request_input = lambda text="": prompts.append(text) or "3"
+        buffer = io.StringIO()
+        with mock.patch.object(writer, "_supported", return_value=True),                 mock.patch.object(writer, "is_admin", return_value=True),                 mock.patch.object(writer, "list_usb_disks", return_value=[listed]),                 mock.patch.object(writer, "_confirm", return_value=True),                 mock.patch.object(usb_writer.os.path, "isfile", return_value=True),                 contextlib.redirect_stdout(buffer):
+            writer.create_installer("efi", "recovery", dry_run=True, expected_disk=expected)
+        return prompts, buffer.getvalue()
+
+    def entry(self, **overrides):
+        item = {"number": 3, "friendly_name": "Stick", "size_bytes": 16 * GB, "partition_style": "RAW", "identity": "A"}
+        item.update(overrides)
+        return item
+
+    def test_swapped_disk_aborts_before_erase_prompt(self):
+        prompts, output = self.run_installer(self.entry(identity="B"), self.entry())
+        self.assertIn("not the drive that was selected", output)
+        self.assertFalse(any("ERASE" in text for text in prompts))
+
+    def test_size_change_aborts(self):
+        prompts, output = self.run_installer(self.entry(size_bytes=8 * GB), self.entry())
+        self.assertIn("not the drive that was selected", output)
+
+    def test_matching_disk_reaches_erase_prompt(self):
+        prompts, output = self.run_installer(self.entry(), self.entry())
+        self.assertNotIn("not the drive that was selected", output)
+        self.assertTrue(any("ERASE" in text for text in prompts))
+
+
 if __name__ == "__main__":
     unittest.main()

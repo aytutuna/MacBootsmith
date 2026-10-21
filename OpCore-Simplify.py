@@ -1,6 +1,7 @@
 from Scripts.datasets import os_data
 from Scripts.datasets import chipset_data
 from Scripts import acpi_guru
+from Scripts import app_paths
 from Scripts import bios_checklist
 from Scripts import compatibility_checker
 from Scripts import config_prodigy
@@ -52,7 +53,7 @@ class OCPE:
         self.build_summary = None
         self.debug_build = False
         self.r = run.Run()
-        self.result_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "Results")
+        self.result_dir = os.path.join(app_paths.app_dir(), "Results")
 
     def export_hardware_report(self):
         hardware_sniffer = self.o.gather_hardware_sniffer()
@@ -60,7 +61,7 @@ class OCPE:
         if not hardware_sniffer:
             return None, None, None
 
-        report_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), "SysReport")
+        report_dir = os.path.join(app_paths.app_dir(), "SysReport")
 
         self.u.head("Exporting Hardware Report")
         print("")
@@ -655,7 +656,10 @@ class OCPE:
     def resolve_headless_path(self, path):
         path = os.path.expanduser(str(path))
         if not os.path.isabs(path):
-            path = os.path.join(os.path.dirname(os.path.realpath(__file__)), path)
+            candidate = os.path.join(app_paths.app_dir(), path)
+            if app_paths.is_frozen() and not os.path.exists(candidate):
+                candidate = os.path.join(os.getcwd(), path)
+            path = candidate
         return os.path.normpath(path)
 
     def resolve_headless_macos_version(self, value):

@@ -69,12 +69,17 @@ class Run:
 
             o, e = p.communicate()
             return (output+o, error+e, p.returncode)
-        except:
+        except (Exception, KeyboardInterrupt):
             if p:
                 try: o, e = p.communicate()
                 except: o = e = ""
                 return (output+o, error+e, p.returncode)
             return ("", "Command not found!", 1)
+        except BaseException:
+            if p:
+                try: p.kill()
+                except Exception: pass
+            raise
 
     def _decode(self, value, encoding="utf-8", errors="ignore"):
         # Helper method to only decode if bytes type

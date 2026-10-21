@@ -1,3 +1,4 @@
+from Scripts import app_paths
 from Scripts import github
 from Scripts import kext_maestro
 from Scripts import integrity_checker
@@ -26,7 +27,7 @@ class gatheringFiles:
         self.aquantia_macos_patches_url = "https://raw.githubusercontent.com/CaseySJ/Aquantia-macOS-Patches/refs/heads/main/CaseySJ-Aquantia-Patch-Sets-1-and-2.plist"
         self.hyper_threading_patches_url = "https://github.com/b00t0x/CpuTopologyRebuild/raw/refs/heads/master/patches_ht.plist"
         self.temporary_dir = self.utils.get_temporary_dir()
-        self.ock_files_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "OCK_Files")
+        self.ock_files_dir = os.path.join(app_paths.app_dir(), "OCK_Files")
         self.download_history_file = os.path.join(self.ock_files_dir, "history.json")
 
     def _load_download_history(self):
@@ -136,7 +137,7 @@ class gatheringFiles:
 
             ocbinarydata_dir = os.path.join(self.temporary_dir, "OcBinaryData", "OcBinaryData-master")
             if os.path.exists(ocbinarydata_dir):
-                background_picker_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), "datasets", "background_picker.icns")
+                background_picker_path = os.path.join(app_paths.data_dir(), "datasets", "background_picker.icns")
                 product_dir = os.path.join(self.ock_files_dir, product_name)
                 efi_dirs = self.utils.find_matching_paths(product_dir, name_filter="EFI", type_filter="dir")
 
@@ -160,7 +161,7 @@ class gatheringFiles:
             if macserial_paths:
                 for macserial_path, _ in macserial_paths:
                     source_macserial_path = os.path.join(self.temporary_dir, product_name, macserial_path)
-                    destination_macserial_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), os.path.basename(macserial_path))
+                    destination_macserial_path = os.path.join(app_paths.tools_dir(), os.path.basename(macserial_path))
                     shutil.move(source_macserial_path, destination_macserial_path)
                     if os.name != "nt":
                         subprocess.run(["chmod", "+x", destination_macserial_path])
@@ -170,7 +171,7 @@ class gatheringFiles:
                 if os.path.splitext(ocvalidate_path)[1].lower() not in ("", ".exe", ".linux"):
                     continue
                 source_ocvalidate_path = os.path.join(self.temporary_dir, product_name, ocvalidate_path)
-                destination_ocvalidate_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), os.path.basename(ocvalidate_path))
+                destination_ocvalidate_path = os.path.join(app_paths.tools_dir(), os.path.basename(ocvalidate_path))
                 shutil.move(source_ocvalidate_path, destination_ocvalidate_path)
                 if os.name != "nt":
                     subprocess.run(["chmod", "+x", destination_ocvalidate_path])
@@ -346,7 +347,7 @@ class gatheringFiles:
         REPO_OWNER = "lzhoang2801"
         REPO_NAME = "Hardware-Sniffer"
 
-        destination_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), PRODUCT_NAME)
+        destination_path = os.path.join(app_paths.tools_dir(), PRODUCT_NAME)
         
         latest_release = self.github.get_latest_release(REPO_OWNER, REPO_NAME) or {}
         

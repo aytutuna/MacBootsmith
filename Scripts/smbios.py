@@ -2,6 +2,7 @@ from Scripts.datasets.mac_model_data import mac_devices
 from Scripts.datasets import cpu_data
 from Scripts.datasets import kext_data
 from Scripts.datasets import os_data
+from Scripts import app_paths
 from Scripts import gathering_files
 from Scripts import run
 from Scripts import utils
@@ -19,7 +20,7 @@ class SMBIOS:
         self.g = gathering_files.gatheringFiles()
         self.run = run.Run().run
         self.utils = utils.Utils()
-        self.script_dir = os.path.dirname(os.path.realpath(__file__))
+        self.script_dir = app_paths.tools_dir()
 
     def check_macserial(self, retry_count=0):
         max_retries = 3

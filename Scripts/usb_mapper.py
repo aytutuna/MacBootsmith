@@ -21,6 +21,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from Scripts import app_paths
 from Scripts import run
 from Scripts import utils
 import copy
@@ -600,10 +601,9 @@ class USBMapper:
     def __init__(self, report_dir=None):
         self.utils = utils.Utils()
         self.r = run.Run()
-        script_dir = os.path.dirname(os.path.realpath(__file__))
-        self.report_dir = report_dir or os.path.join(os.path.dirname(script_dir), "SysReport")
+        self.report_dir = report_dir or os.path.join(app_paths.app_dir(), "SysReport")
         self.map_path = os.path.join(self.report_dir, "USBMap.json")
-        self.enum_source = os.path.join(script_dir, "usb_enum.cs")
+        self.enum_source = os.path.join(app_paths.data_dir(), "usb_enum.cs")
         self.unsupported_message = "USB port mapping is only supported on Windows for now."
         system_root = os.environ.get("SystemRoot", r"C:\Windows")
         self.powershell_exe = os.path.join(system_root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")

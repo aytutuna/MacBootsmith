@@ -3,6 +3,7 @@ from Scripts.datasets import kext_data
 from Scripts.datasets import os_data
 from Scripts.datasets import pci_data
 from Scripts.datasets import codec_layouts
+from Scripts import app_paths
 from Scripts import utils
 import os
 import shutil
@@ -25,7 +26,7 @@ class KextMaestro:
             "idVendor", 
             "HDAConfigDefault"
         ]
-        self.ock_files_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "OCK_Files")
+        self.ock_files_dir = os.path.join(app_paths.app_dir(), "OCK_Files")
         self.kexts = kext_data.kexts
         self.usb_map_replaced_default = False
         self.whatevergreen_first_boot_off = False

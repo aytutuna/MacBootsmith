@@ -246,7 +246,7 @@ class USBWriter:
             if len(mismatches) > 20:
                 print("  ...and {} more".format(len(mismatches) - 20))
 
-    def create_installer(self, efi_dir, recovery_dir, dry_run=False):
+    def create_installer(self, efi_dir, recovery_dir, dry_run=False, expected_disk=None):
         if not self._supported():
             return None
         print("")
@@ -280,6 +280,9 @@ class USBWriter:
         disk = next((d for d in disks if choice.isdecimal() and d["number"] == int(choice)), None)
         if not disk:
             print("Invalid disk number.")
+            return
+        if expected_disk is not None and (disk["size_bytes"] != expected_disk.get("size_bytes") or disk.get("identity", "") != expected_disk.get("identity", "")):
+            print("[91mDisk {} is not the drive that was selected. Aborted, nothing was changed.[0m".format(disk["number"]))
             return
         print("")
         print("\033[91mWARNING: ALL DATA on disk {} will be erased.\033[0m".format(disk["number"]))

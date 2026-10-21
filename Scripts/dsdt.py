@@ -1,6 +1,7 @@
 # Original source: https://github.com/corpnewt/SSDTTime/blob/64446d553fcbc14a4e6ebf3d8d16e3357b5cbf50/Scripts/dsdt.py
 
 import os, errno, tempfile, shutil, plistlib, sys, binascii, zipfile, getpass, re
+from Scripts import app_paths
 from Scripts import github
 from Scripts import resource_fetcher
 from Scripts import run
@@ -32,7 +33,7 @@ class DSDT:
                 exception += "\n\nPlease manually download {} from:\n - {}\n\nAnd place in:\n - {}\n".format(
                     "\"iasl-win-YYYYMMDD.zip\" and extract iasl.exe" if os.name=="nt" else "iasl",
                     url,
-                    os.path.dirname(os.path.realpath(__file__))
+                    app_paths.tools_dir()
                 )
             raise Exception(exception)
         self.allowed_signatures = (b"APIC",b"DMAR",b"DSDT",b"SSDT")
@@ -271,15 +272,15 @@ class DSDT:
 
     def check_iasl(self, legacy=False, try_downloading=True):
         if sys.platform == "win32":
-            targets = (os.path.join(os.path.dirname(os.path.realpath(__file__)), "iasl-legacy.exe" if legacy else "iasl.exe"),)
+            targets = (os.path.join(app_paths.tools_dir(), "iasl-legacy.exe" if legacy else "iasl.exe"),)
         else:
             if legacy:
-                targets = (os.path.join(os.path.dirname(os.path.realpath(__file__)), "iasl-legacy"),)
+                targets = (os.path.join(app_paths.tools_dir(), "iasl-legacy"),)
             else:
                 targets = (
-                    os.path.join(os.path.dirname(os.path.realpath(__file__)), "iasl-dev"),
-                    os.path.join(os.path.dirname(os.path.realpath(__file__)), "iasl-stable"),
-                    os.path.join(os.path.dirname(os.path.realpath(__file__)), "iasl")
+                    os.path.join(app_paths.tools_dir(), "iasl-dev"),
+                    os.path.join(app_paths.tools_dir(), "iasl-stable"),
+                    os.path.join(app_paths.tools_dir(), "iasl")
                 )
         target = next((t for t in targets if os.path.exists(t)),None)
         if target or not try_downloading:
@@ -321,7 +322,7 @@ class DSDT:
             # Extract with built-in tools \o/
             with zipfile.ZipFile(os.path.join(ztemp,zfile)) as z:
                 z.extractall(search_dir)
-        script_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)))
+        script_dir = app_paths.tools_dir()
         for x in os.listdir(search_dir):
             if x.lower().startswith(("iasl","acpidump")):
                 # Found one
@@ -339,7 +340,7 @@ class DSDT:
         print("")
         res = self.check_output(output)
         if os.name == "nt":
-            target = os.path.join(os.path.dirname(os.path.realpath(__file__)),"acpidump.exe")
+            target = os.path.join(app_paths.tools_dir(),"acpidump.exe")
             if os.path.exists(target):
                 # Dump to the target folder
                 print("Dumping tables to {}...".format(res))
@@ -406,7 +407,7 @@ class DSDT:
             return res
 
     def check_output(self, output):
-        t_folder = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), output)
+        t_folder = os.path.join(app_paths.app_dir(), output)
         if not os.path.isdir(t_folder):
             os.makedirs(t_folder)
         return t_folder

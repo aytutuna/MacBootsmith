@@ -1,3 +1,4 @@
+from Scripts import app_paths
 from Scripts import gathering_files
 from Scripts import run
 from Scripts import utils
@@ -11,7 +12,7 @@ class ConfigValidator:
         self.g = None
         self.run = run.Run().run
         self.utils = utils.Utils()
-        self.script_dir = os.path.dirname(os.path.realpath(__file__))
+        self.script_dir = app_paths.tools_dir()
 
     def _find_ocvalidate(self):
         if os_name == "Windows":

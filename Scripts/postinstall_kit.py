@@ -1,6 +1,7 @@
 from Scripts.datasets import codec_layouts
 from Scripts.datasets import os_data
 from Scripts.datasets import postinstall_tools
+from Scripts import app_paths
 from Scripts import integrity_checker
 from Scripts import resource_fetcher
 from Scripts import utils
@@ -678,7 +679,7 @@ class PostInstallKit:
         return "\n".join(lines) + "\n"
 
     def copy_docs(self, dest_dir):
-        source_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "docs", "reference")
+        source_dir = os.path.join(app_paths.bundle_dir(), "docs", "reference")
         docs_dir = os.path.join(dest_dir, DOCS_FOLDER)
         for name in DOCS_FILES:
             source = os.path.join(source_dir, name)

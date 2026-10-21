@@ -21,8 +21,9 @@ CI runs: https://github.com/aytutuna/MacBootsmith/actions
 7. BIOS checklist for the detected platform: the firmware settings to disable and enable before booting the installer.
 8. USB port mapping on the target machine: every controller and root-hub port is listed through Windows' USB hub interface, you plug a device into each port you want, and the build turns the selection into a UTBMap kext in place of the placeholder map.
 9. Post-install kit: a checklist for the installed system made from the build's choices (EFI move, root patches, audio layouts, Broadcom firmware, USB checks, Apple Account prerequisites, sleep, updates), a macOS helper script, the generated SMBIOS values and optionally the tools (Hackintool, ProperTree, MountEFI), copied to the USB drive with the installer.
+10. Graphical interface: a step-by-step window over the same stages (see below). The terminal menu remains.
 
-Planned, not implemented yet: a graphical interface. See `docs/reference/gaps.md` for the ranked list.
+Open work is tracked in `docs/reference/gaps.md`.
 
 ## What it does not do
 
@@ -40,6 +41,27 @@ Planned, not implemented yet: a graphical interface. See `docs/reference/gaps.md
 - An internet connection. OpenCore, kexts and the recovery image are downloaded at run time; nothing from Apple is bundled.
 
 ## How to use
+
+### Graphical interface
+
+Double-click `MacBootsmith-GUI.bat` (or run `pythonw MacBootsmith.pyw`). The window walks through the stages in order, with a step list on the left and a log at the bottom:
+
+1. Welcome: requirements and the Windows preflight (BitLocker, partition style, EFI partition size).
+2. Hardware: scan this PC with Hardware Sniffer or open an existing report, then read the compatibility verdict per device.
+3. macOS version: the versions this hardware supports; the suggested one is preselected.
+4. Options: audio method on macOS 26, Broadcom Wi-Fi method, WhateverGreen on the first boot, RELEASE or DEBUG build. Next configures the build (SMBIOS, ACPI patches, kexts).
+5. USB mapping: list the ports, plug devices in and refresh, tick at most 15 ports per controller, set connector types, save the map.
+6. Build: gathers OpenCore and the kexts, builds the EFI and shows the ocvalidate result.
+7. Recovery: downloads and verifies the recovery image.
+8. USB: lists USB disks only; you must select the disk and type ERASE before Write is enabled. A dry run changes nothing. Copying only the EFI to an existing drive is the second mode. Writing needs administrator rights; the page offers a restart as administrator.
+9. Post-install: prepares the kit (full or docs-only) and shows the checklist and the BIOS Disable, Enable and Notes lists.
+10. Finish: where every output is, and the boot log analyser for a DEBUG log.
+
+The window drives the same OpenCore engine stages as the terminal menu and headless mode; nothing is decided differently. When a stage needs an answer that has no control on the page (for example which of two GPUs to keep), a dialog shows the stage's own text and options. Cancel stops the running stage at its next output or question.
+
+`python MacBootsmith.pyw --self-test` opens the window, visits every page and closes after two seconds (used by CI).
+
+### Terminal menu
 
 Run `OpCore-Simplify.bat` as administrator. The main menu offers:
 
@@ -79,11 +101,12 @@ Run the tests:
 python -m unittest discover -s tests
 ```
 
-The CI workflow (`.github/workflows/ci.yml`) has four jobs:
+The CI workflow (`.github/workflows/ci.yml`) has five jobs:
 
 - test: the unit tests.
 - build: headless EFI build per hardware report fixture (desktop, desktop-debug, laptop), with an ocvalidate check, a DEBUG settings check for desktop-debug and, for the desktop fixture, a docs-only post-install kit check; the EFI is uploaded as an artifact.
 - boot: boots the desktop and desktop-debug EFIs in QEMU, checks that the OpenCore picker appears, and runs the boot log analyser on the serial log.
+- package: builds the Windows app with PyInstaller (`packaging/macbootsmith.spec`), runs a headless desktop build and the window self-test with the packaged app, and uploads it as the MacBootsmith-windows artifact. See `packaging/README.md`.
 - recovery-download: downloads and verifies a macOS 26 recovery image.
 
 Design notes live in `docs/reference/` (BIOS settings, install flow, post-install, OCLP, Tahoe, gaps, external links).

@@ -127,6 +127,47 @@ jobs:
           path: Results/EFI
           if-no-files-found: error
 
+  package:
+    needs: test
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PyInstaller
+        run: python -m pip install pyinstaller
+      - name: Build the Windows app
+        run: python -m PyInstaller --noconfirm --clean packaging/macbootsmith.spec
+      - name: Upload the app
+        uses: actions/upload-artifact@v4
+        with:
+          name: MacBootsmith-windows
+          path: dist/MacBootsmith
+          if-no-files-found: error
+      - name: Smoke test (headless desktop build with the packaged app)
+        shell: pwsh
+        run: |
+          # run a copy so the uploaded folder stays free of downloads and results
+          $smoke = Join-Path $env:RUNNER_TEMP "MacBootsmith"
+          Copy-Item -Recurse dist/MacBootsmith $smoke
+          $exe = Join-Path $smoke "MacBootsmith.exe"
+          $log = Join-Path $smoke "MacBootsmith.log"
+          $p = Start-Process -FilePath $exe -ArgumentList "--headless", "tests/fixtures/answers-desktop.json" -Wait -PassThru
+          if (Test-Path $log) { Get-Content $log }
+          if ($p.ExitCode -ne 0) { Write-Error "packaged headless build exited with $($p.ExitCode)"; exit 1 }
+          & (Join-Path $smoke "Scripts\ocvalidate.exe") (Join-Path $smoke "Results\EFI\OC\config.plist")
+          if ($LASTEXITCODE -ne 0) { Write-Error "ocvalidate exited with $LASTEXITCODE"; exit 1 }
+      - name: Window self-test (packaged app)
+        shell: pwsh
+        run: |
+          $smoke = Join-Path $env:RUNNER_TEMP "MacBootsmith"
+          $log = Join-Path $smoke "MacBootsmith.log"
+          $p = Start-Process -FilePath (Join-Path $smoke "MacBootsmith.exe") -ArgumentList "--self-test" -Wait -PassThru
+          if (Test-Path $log) { Get-Content $log }
+          if ($p.ExitCode -ne 0) { Write-Error "window self-test exited with $($p.ExitCode)"; exit 1 }
+
   boot:
     needs: build
     runs-on: ubuntu-latest
