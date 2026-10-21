@@ -175,7 +175,9 @@ done
 kill "$QPID" 2>/dev/null
 wait "$QPID" 2>/dev/null
 
-tr -d '' < "$SERIAL_LOG" > "$SERIAL_LOG.clean" && mv "$SERIAL_LOG.clean" "$SERIAL_LOG"
+# Strip CRs, and mask the generated platform identifiers: annotations and summaries
+# are public on a public repository.
+tr -d '' < "$SERIAL_LOG"     | sed -E 's/(Setting (SSN|MLB|ROM|system-id|SystemSerialNumber|SystemUUID|MLB)) [^ ]+/ <masked>/'     > "$SERIAL_LOG.clean" && mv "$SERIAL_LOG.clean" "$SERIAL_LOG"
 echo "================ serial.log ================"
 cat "$SERIAL_LOG"
 echo "============================================"
