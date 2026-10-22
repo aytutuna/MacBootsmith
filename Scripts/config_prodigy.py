@@ -10,7 +10,6 @@ from Scripts import gathering_files
 from Scripts import smbios
 from Scripts import utils
 import os
-import random
 import re
 
 bcmc_firmwares = {
@@ -289,7 +288,7 @@ class ConfigProdigy:
         recommended_authors = ("Mirone", "InsanelyDeepak", "Toleda", "DalianSky")
         recommended_layouts = [layout for layout in available_layouts if self.utils.contains_any(recommended_authors, layout.comment)]
 
-        default_layout = random.choice(recommended_layouts or available_layouts)
+        default_layout = (recommended_layouts or available_layouts)[0]
 
         while True:
             contents = []
