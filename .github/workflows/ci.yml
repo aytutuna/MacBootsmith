@@ -61,6 +61,24 @@ jobs:
           key: ock-${{ matrix.fixture }}-${{ hashFiles('.github/workflows/ci.yml') }}-${{ steps.week.outputs.week }}
           restore-keys: |
             ock-${{ matrix.fixture }}-${{ hashFiles('.github/workflows/ci.yml') }}-
+      - name: Hardware scan on the runner
+        if: matrix.fixture == 'desktop'
+        shell: bash
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          python - <<'EOF'
+          import importlib.util, sys
+          spec = importlib.util.spec_from_file_location("ocs", "OpCore-Simplify.py")
+          ocs = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(ocs)
+          report_path, acpi_dir, error = ocs.OCPE().export_hardware_report()
+          if error or not report_path:
+              print("::error::hardware scan failed: {}".format(error))
+              sys.exit(1)
+          EOF
+          # the runner runs as administrator, so a missing ACPI dump is an error here
+          python tests/ci/check_scan.py SysReport/Report.json --acpi-dir SysReport/ACPI
       - name: Headless build (${{ matrix.fixture }})
         shell: bash
         env:
@@ -167,6 +185,26 @@ jobs:
           $p = Start-Process -FilePath (Join-Path $smoke "MacBootsmith.exe") -ArgumentList "--self-test" -Wait -PassThru
           if (Test-Path $log) { Get-Content $log }
           if ($p.ExitCode -ne 0) { Write-Error "window self-test exited with $($p.ExitCode)"; exit 1 }
+      - name: Scan smoke test (headless build from a live scan with the packaged app)
+        shell: pwsh
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          $smoke = Join-Path $env:RUNNER_TEMP "MacBootsmith"
+          $log = Join-Path $smoke "MacBootsmith.log"
+          Remove-Item $log -ErrorAction SilentlyContinue
+          $p = Start-Process -FilePath (Join-Path $smoke "MacBootsmith.exe") -ArgumentList "--headless", "tests/fixtures/answers-sniff.json" -Wait -PassThru
+          $text = if (Test-Path $log) { Get-Content $log -Raw } else { "" }
+          $text
+          Write-Output "packaged scan build exited with $($p.ExitCode) (allowed: 0 3)"
+          # 3: the runner hardware is not supported by macOS, which still proves the scan ran
+          if ($p.ExitCode -eq 0 -or $p.ExitCode -eq 3) { exit 0 }
+          # 1 is accepted only when the report failed validation for devices a Hyper-V VM does not have
+          if ($p.ExitCode -eq 1 -and $text -match "failed validation") {
+            python tests/ci/check_scan.py (Join-Path $smoke "SysReport/Report.json") --acpi-dir (Join-Path $smoke "SysReport/ACPI")
+            if ($LASTEXITCODE -eq 0) { exit 0 }
+          }
+          Write-Error "packaged scan build exited with $($p.ExitCode)"; exit 1
 
   boot:
     needs: build
