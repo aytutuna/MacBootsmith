@@ -7,9 +7,6 @@ from Scripts import utils
 import os
 import shutil
 import subprocess
-import platform
-
-os_name = platform.system()
 
 OPENCORE_PRODUCT = "OpenCorePkg"
 OPENCORE_DEBUG_PRODUCT = "OpenCorePkg-DEBUG"
@@ -336,71 +333,3 @@ class gatheringFiles:
             print("")
             self.utils.request_input()
             return []
-        
-    def gather_hardware_sniffer(self):
-        if os_name != "Windows":
-            return
-
-        self.utils.head("Gathering Hardware Sniffer")
-
-        PRODUCT_NAME = "Hardware-Sniffer-CLI.exe"
-        REPO_OWNER = "lzhoang2801"
-        REPO_NAME = "Hardware-Sniffer"
-
-        destination_path = os.path.join(app_paths.tools_dir(), PRODUCT_NAME)
-        
-        latest_release = self.github.get_latest_release(REPO_OWNER, REPO_NAME) or {}
-        
-        product_id = None
-        product_download_url = None
-        sha256_hash = None
-
-        asset_name = PRODUCT_NAME.split('.')[0]
-        for asset in latest_release.get("assets", []):
-            if asset.get("product_name") == asset_name:
-                product_id = asset.get("id")
-                product_download_url = asset.get("url")
-                sha256_hash = asset.get("sha256")
-                break
-
-        if not all([product_id, product_download_url, sha256_hash]):
-            print("")
-            print("Could not find release information for {}.".format(PRODUCT_NAME))
-            print("Please try again later.")
-            print("")
-            self.utils.request_input()
-            raise Exception("Could not find release information for {}.".format(PRODUCT_NAME))
-        local_download_history = self._load_download_history()
-
-        history_item = local_download_history.get(PRODUCT_NAME)
-        
-        if history_item is not None:
-            is_latest_id = (product_id == history_item.get("id"))
-            
-            file_is_valid = False
-            if os.path.exists(destination_path):
-                local_hash = self.integrity_checker.get_sha256(destination_path)
-                file_is_valid = (sha256_hash == local_hash)
-
-            if is_latest_id and file_is_valid:
-                print("")
-                print("Latest version of {} already downloaded.".format(PRODUCT_NAME))
-                return destination_path
-
-        print("")
-        print("Updating" if history_item is not None else "Please wait for download", end=" ")
-        print("{}...".format(PRODUCT_NAME))
-        print("")
-        print("from {}".format(product_download_url))
-        print("")
-        
-        if not self.fetcher.download_and_save_file(product_download_url, destination_path, sha256_hash):
-            manual_download_url = f"https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/latest"
-            print("Go to {} to download {} manually.".format(manual_download_url, PRODUCT_NAME))
-            print("")
-            self.utils.request_input()
-            raise Exception("Failed to download {}.".format(PRODUCT_NAME))
-
-        self._save_download_history(local_download_history, PRODUCT_NAME, product_id, product_download_url, sha256_hash)
-        
-        return destination_path

@@ -128,8 +128,12 @@ class Session:
         ocpe = self.ensure_ocpe()
         report_path, acpi_dir, error_message = ocpe.export_hardware_report()
         if error_message or not report_path:
-            raise StageError("Could not export the hardware report. {}".format(error_message or "Hardware Sniffer is only available on Windows."))
-        return self.load_report(report_path, acpi_dir if acpi_dir and os.path.isdir(acpi_dir) else None)
+            raise StageError("Could not export the hardware report. {}".format(error_message or "The hardware scan is only available on Windows."))
+        verdict = self.load_report(report_path, acpi_dir if acpi_dir and os.path.isdir(acpi_dir) else None)
+        if getattr(ocpe, "acpi_dump_error", None):
+            self.validation["warnings"].append("The ACPI tables were not dumped, so DSDT-based ACPI patches are skipped. {}".format(ocpe.acpi_dump_error))
+            verdict = self.verdict()
+        return verdict
 
     def load_report(self, report_path, acpi_dir=None, find_acpi=True):
         ocpe = self.ensure_ocpe()

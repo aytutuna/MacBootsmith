@@ -230,6 +230,24 @@ class Utils:
                 data = plistlib.load(file_handle)
             elif file_extension == ".json":
                 data = json.load(file_handle)
+            elif file_extension == ".ids":
+                data = {}
+                current_vendor = None
+
+                for line in file_handle.read().decode().splitlines():
+                    if not line.strip() or line.startswith("#"):
+                        continue
+
+                    if not line.startswith("\t"):
+                        parts = line.split(maxsplit=1)
+                        if len(parts) == 2:
+                            current_vendor = parts[0].upper()
+                            data[current_vendor] = {"name": parts[1], "devices": {}}
+                    elif current_vendor:
+                        parts = line.strip().split(maxsplit=1)
+                        if len(parts) == 2:
+                            device_id, device_name = parts
+                            data[current_vendor]["devices"][device_id.upper()] = device_name
             else:
                 data = file_handle.read()
             return data
@@ -300,6 +318,19 @@ class Utils:
         
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(extraction_directory)
+
+    def get_unique_key(self, base_key, dictionary):
+        if base_key not in dictionary:
+            return base_key
+
+        counter = 1
+        unique_key = "{}_#{}".format(base_key, counter)
+
+        while unique_key in dictionary:
+            counter += 1
+            unique_key = "{}_#{}".format(base_key, counter)
+
+        return unique_key
 
     def contains_any(self, data, search_item, start=0, end=None):
         return next((item for item in data[start:end] if item.lower() in search_item.lower()), None)

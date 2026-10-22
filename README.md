@@ -12,7 +12,7 @@ CI runs: https://github.com/aytutuna/MacBootsmith/actions
 
 ## What it does
 
-1. Hardware scan with Hardware Sniffer, producing a hardware report.
+1. Hardware scan, producing a hardware report (built-in scanner taken from Hardware Sniffer).
 2. Compatibility verdict: which macOS versions each device supports, and which need OpenCore Legacy Patcher.
 3. EFI build using the OpCore-Simplify engine (ACPI patches, kexts, SMBIOS, config.plist).
 4. Config validation of the built EFI with ocvalidate.
@@ -47,7 +47,7 @@ Open work is tracked in `docs/reference/gaps.md`.
 Double-click `MacBootsmith-GUI.bat` (or run `pythonw MacBootsmith.pyw`). The window walks through the stages in order, with a step list on the left and a log at the bottom:
 
 1. Welcome: requirements and the Windows preflight (BitLocker, partition style, EFI partition size).
-2. Hardware: scan this PC with Hardware Sniffer or open an existing report, then read the compatibility verdict per device.
+2. Hardware: scan this PC or open an existing report, then read the compatibility verdict per device.
 3. macOS version: the versions this hardware supports; the suggested one is preselected.
 4. Options: audio method on macOS 26, Broadcom Wi-Fi method, WhateverGreen on the first boot, RELEASE or DEBUG build. Next configures the build (SMBIOS, ACPI patches, kexts).
 5. USB mapping: list the ports, plug devices in and refresh, tick at most 15 ports per controller, set connector types, save the map.
@@ -121,7 +121,7 @@ No Apple software is included. The recovery image is downloaded by you, from App
 
 - [OpCore-Simplify](https://github.com/lzhoang2801/OpCore-Simplify) by lzhoang2801: the engine this project forks.
 - [OpenCorePkg and macrecovery](https://github.com/acidanthera/OpenCorePkg) by Acidanthera: bootloader, ocvalidate, macserial, recovery download.
-- Hardware Sniffer by lzhoang2801: hardware scan (https://github.com/lzhoang2801/Hardware-Sniffer).
+- Hardware Sniffer by lzhoang2801: the hardware scanner, vendored in `Scripts/sniffer` (https://github.com/lzhoang2801/Hardware-Sniffer).
 - [USBToolBox](https://github.com/USBToolBox/tool): USB mapping tooling and kext.
 - [SSDTTime](https://github.com/corpnewt/SSDTTime) and [ProperTree](https://github.com/corpnewt/ProperTree) by corpnewt.
 - [Dortania guides](https://dortania.github.io/OpenCore-Install-Guide/): the reference for OpenCore setup.

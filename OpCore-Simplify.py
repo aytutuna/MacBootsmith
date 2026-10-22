@@ -1,5 +1,6 @@
 from Scripts.datasets import os_data
 from Scripts.datasets import chipset_data
+from Scripts.sniffer import hardware_sniffer
 from Scripts import acpi_guru
 from Scripts import app_paths
 from Scripts import bios_checklist
@@ -13,7 +14,6 @@ from Scripts import postinstall_kit
 from Scripts import preflight
 from Scripts import recovery_fetcher
 from Scripts import report_validator
-from Scripts import run
 from Scripts import smbios
 from Scripts import usb_mapper
 from Scripts import usb_writer
@@ -52,51 +52,50 @@ class OCPE:
         self.pk = postinstall_kit.PostInstallKit()
         self.build_summary = None
         self.debug_build = False
-        self.r = run.Run()
+        self.acpi_dump_error = None
         self.result_dir = os.path.join(app_paths.app_dir(), "Results")
 
     def export_hardware_report(self):
-        hardware_sniffer = self.o.gather_hardware_sniffer()
-
-        if not hardware_sniffer:
+        if os.name != "nt":
             return None, None, None
 
-        report_dir = os.path.join(app_paths.app_dir(), "SysReport")
+        sniffer = hardware_sniffer.HardwareSniffer(os.path.join(app_paths.app_dir(), "SysReport"))
 
-        self.u.head("Exporting Hardware Report")
-        print("")
-        print("Exporting hardware report to {}...".format(report_dir))
+        try:
+            sniffer.collect()
+        except Exception as e:
+            return None, None, "Error collecting hardware: {}".format(e)
 
-        output = self.r.run({
-            "args":[hardware_sniffer, "-e", "-o", report_dir]
-        })
+        try:
+            report_path = sniffer.export_hardware_report()
+        except Exception as e:
+            return None, None, "Error writing the hardware report: {}".format(e)
 
-        if output[-1] != 0:
-            error_code = output[-1]
-            if error_code == 3:
-                error_message = "Error collecting hardware."
-            elif error_code == 4:
-                error_message = "Error generating hardware report."
-            elif error_code == 5:
-                error_message = "Error dumping ACPI tables."
-            else:
-                error_message = "Unknown error."
-            return None, None, error_message
-
-        report_path = os.path.join(report_dir, "Report.json")
         self.pf.add_bios_vendor(report_path)
-        return report_path, os.path.join(report_dir, "ACPI"), None
+
+        self.acpi_dump_error = None
+        try:
+            acpi_dir = sniffer.dump_acpi_tables()
+        except Exception as e:
+            acpi_dir = None
+            self.acpi_dump_error = str(e)
+            print("")
+            print("\033[1;93mWarning:\033[0m The ACPI tables were not dumped. {}".format(e))
+            print("The hardware report was kept in {}.".format(report_path))
+            print("")
+
+        return report_path, acpi_dir, None
 
     def select_hardware_report(self):
         self.ac.dsdt = self.ac.acpi.acpi_tables = None
+        self.ac.skip_acpi_tables = False
 
         while True:
             self.u.head("Select hardware report")
             print("")
             if os.name == "nt":
                 print("\033[1;93mNote:\033[0m")
-                print("- Ensure you are using the latest version of Hardware Sniffer before generating the hardware report.")
-                print("- Hardware Sniffer will not collect information related to Resizable BAR option of GPU (disabled by default) and monitor connections in Windows PE.")
+                print("- The hardware scan will not collect information related to Resizable BAR option of GPU (disabled by default) and monitor connections in Windows PE.")
                 print("")
                 print("E. Export hardware report (Recommended)")
                 print("")
@@ -112,13 +111,18 @@ class OCPE:
                 if error_message:
                     print("")
                     print("Could not export the hardware report. {}".format(error_message))
-                    print("Please try again or using Hardware Sniffer manually.")
+                    print("Please try again.")
                     print("")
                     self.u.request_input()
                     continue
 
                 if not report_path:
                     continue
+
+                if not acpitables_dir:
+                    print("You will be asked for an ACPI tables folder before the build.")
+                    print("")
+                    self.u.request_input()
 
                 report_data = self.u.read_file(report_path)
                 self.ac.read_acpi_tables(acpitables_dir)
@@ -721,8 +725,10 @@ class OCPE:
         if str(report).lower() == "sniff":
             report_path, acpitables_dir, error_message = self.export_hardware_report()
             if error_message or not report_path:
-                raise Exception("Could not export the hardware report. {}".format(error_message or "Hardware Sniffer is only available on Windows."))
-            if not acpi_path and os.path.isdir(acpitables_dir):
+                raise Exception("Could not export the hardware report. {}".format(error_message or "The hardware scan is only available on Windows."))
+            if not acpi_path:
+                if not acpitables_dir:
+                    raise Exception("The hardware report was saved to {}, but the ACPI tables could not be dumped (see above). Add \"acpi\" with a tables folder to the answers file, or fix the dump and retry.".format(report_path))
                 acpi_path = acpitables_dir
         else:
             report_path = self.resolve_headless_path(report)

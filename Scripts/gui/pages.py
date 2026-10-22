@@ -163,7 +163,7 @@ class HardwarePage(Page):
         return self.session.hardware_report is not None
 
     def scan(self):
-        self.app.run_stage("Scanning this PC with Hardware Sniffer", self.session.scan_report, on_done=self.show_verdict, on_error=self.show_failure)
+        self.app.run_stage("Scanning this PC", self.session.scan_report, on_done=self.show_verdict, on_error=self.show_failure)
 
     def open_report(self):
         path = filedialog.askopenfilename(parent=self, title="Open hardware report", filetypes=[("Hardware report", "*.json"), ("All files", "*.*")])
