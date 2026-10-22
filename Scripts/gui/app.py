@@ -1,3 +1,4 @@
+import math
 import queue
 import sys
 import tkinter as tk
@@ -6,6 +7,8 @@ from tkinter import messagebox
 from tkinter import ttk
 
 from Scripts import utils
+from Scripts.datasets.explanations import decisions
+from Scripts.datasets.explanations import glossary
 from Scripts.gui import broker as broker_module
 from Scripts.gui import pages
 from Scripts.gui import widgets
@@ -32,25 +35,32 @@ class PromptDialog(tk.Toplevel):
         self.transient(app)
         self.resizable(True, True)
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
+        self.rowconfigure(2, weight=1)
 
         ttk.Label(self, text=request.prompt.strip(), font=widgets.bold_font(self), wraplength=760, justify="left").grid(row=0, column=0, sticky="w", padx=12, pady=(12, 6))
-        frame, text = widgets.scrolled_text(self, height=16, width=96, mono=True, wrap="none")
-        frame.grid(row=1, column=0, sticky="nsew", padx=12)
+        decision = decisions.get(request.decision) if request.decision else None
+        self.explanation = None
+        if decision:
+            frame, self.explanation = widgets.scrolled_text(self, height=8, width=96)
+            frame.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 6))
+            self.explain(decision)
+        frame, text = widgets.scrolled_text(self, height=8 if decision else 16, width=96, mono=True, wrap="none")
+        frame.grid(row=2, column=0, sticky="nsew", padx=12)
         widgets.set_text(text, broker_module.strip_ansi(request.captured).strip("\n"))
         text.see("end")
 
         if request.choices:
             buttons = ttk.Frame(self)
-            buttons.grid(row=2, column=0, sticky="ew", padx=12, pady=(8, 0))
-            columns = 1 if len(request.choices) <= 2 else 3
+            buttons.grid(row=3, column=0, sticky="ew", padx=12, pady=(8, 0))
+            # at most four rows of buttons, so the answer field stays on screen
+            columns = 1 if len(request.choices) <= 2 else max(3, math.ceil(len(request.choices) / 4))
             for index, (label, value) in enumerate(request.choices):
                 ttk.Button(buttons, text=label, command=lambda answer=value: self.submit(answer)).grid(row=index // columns, column=index % columns, sticky="ew", padx=(0, 6), pady=2)
             for column in range(columns):
                 buttons.columnconfigure(column, weight=1)
 
         entry_row = ttk.Frame(self)
-        entry_row.grid(row=3, column=0, sticky="ew", padx=12, pady=(8, 12))
+        entry_row.grid(row=4, column=0, sticky="ew", padx=12, pady=(8, 12))
         entry_row.columnconfigure(1, weight=1)
         ttk.Label(entry_row, text="Answer:").grid(row=0, column=0, padx=(0, 6))
         self.answer = tk.StringVar()
@@ -73,6 +83,17 @@ class PromptDialog(tk.Toplevel):
             self.grab_set()
         except tk.TclError:
             pass
+
+    def explain(self, decision):
+        text = self.explanation
+        text.tag_configure("option", lmargin1=16, lmargin2=32)
+        text.configure(state="normal")
+        text.insert("end", decision["title"] + "\n", ("bold",))
+        text.insert("end", "What: {}\nWhy: {}\n".format(decision["what"], decision["why"]))
+        for value, label, when in decision["options"]:
+            text.insert("end", "{}: {}. {}\n".format(value, label, when), ("option",))
+        text.insert("end", "Default: " + decision["default"])
+        text.configure(state="disabled")
 
     def submit(self, value):
         if self.answered:
@@ -99,6 +120,25 @@ class PromptDialog(tk.Toplevel):
             self.app.dialogs.remove(self)
 
 
+class GlossaryWindow(tk.Toplevel):
+    def __init__(self, app):
+        super().__init__(app)
+        self.title("{}: what the words mean".format(APP_TITLE))
+        self.transient(app)
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+        frame, self.text = widgets.scrolled_text(self, height=24, width=90)
+        frame.grid(row=0, column=0, sticky="nsew", padx=12, pady=(12, 6))
+        self.text.configure(state="normal")
+        for term, meaning in glossary.items():
+            self.text.insert("end", term + "\n", ("bold",))
+            self.text.insert("end", meaning + "\n\n")
+        self.text.configure(state="disabled")
+        ttk.Button(self, text="Close", command=self.destroy).grid(row=1, column=0, sticky="e", padx=12, pady=(0, 12))
+        self.bind("<Escape>", lambda _: self.destroy())
+        self.geometry("+{}+{}".format(app.winfo_rootx() + 80, app.winfo_rooty() + 40))
+
+
 class MacBootsmithApp(tk.Tk):
     def __init__(self, autostart=True, install_hooks=True):
         super().__init__()
@@ -121,6 +161,7 @@ class MacBootsmithApp(tk.Tk):
         self._poll_id = None
         self._restore_output = None
         self.hooks_installed = False
+        self.glossary = None
 
         self.setup_style()
         self.build_layout()
@@ -192,6 +233,7 @@ class MacBootsmithApp(tk.Tk):
         nav.columnconfigure(1, weight=1)
         self.cancel_button = ttk.Button(nav, text="Cancel", command=self.cancel_stage)
         self.cancel_button.grid(row=0, column=0)
+        ttk.Button(nav, text="What do these words mean?", command=self.show_glossary).grid(row=0, column=1, sticky="w", padx=(6, 0))
         self.back_button = ttk.Button(nav, text="< Back", command=self.back)
         self.back_button.grid(row=0, column=2, padx=(0, 6))
         self.next_button = ttk.Button(nav, text="Next >", command=self.next)
@@ -295,6 +337,13 @@ class MacBootsmithApp(tk.Tk):
         self.cancel_button.state(["!disabled"] if busy else ["disabled"])
         if hasattr(page, "update_state"):
             page.update_state()
+
+    def show_glossary(self):
+        if self.glossary is not None and self.glossary.winfo_exists():
+            self.glossary.lift()
+        else:
+            self.glossary = GlossaryWindow(self)
+        return self.glossary
 
     def set_status(self, text):
         self.status.configure(text=text)

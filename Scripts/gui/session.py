@@ -88,6 +88,9 @@ def summary_lines(summary):
         "Recovery: {}".format(summary["recovery"] or "skipped"),
         "Post-install kit: {}".format(summary["kit"] or "not prepared")
     ]
+    if summary.get("decisions"):
+        lines.append("Decided for you:")
+        lines.extend("  - {}".format(line) for line in summary["decisions"])
     if summary["warnings"]:
         lines.append("Warnings:")
         lines.extend("  - {}".format(warning) for warning in summary["warnings"])
@@ -435,6 +438,7 @@ class Session:
             ocpe.u.progress_bar(EXPRESS_TITLE, steps, steps.index(name))
 
         self.build_result = None
+        utils.Utils.decisions = []
         self.defaults_hook(True)
         try:
             step("Windows preflight")
@@ -488,6 +492,7 @@ class Session:
             "kit": kit.get("dest_dir") if kit else None,
             "usb_map": result["usb_map"],
             "bios": result["bios"],
+            "decisions": utils.Utils.decision_lines(),
             "warnings": list(dict.fromkeys(warnings))
         }
 

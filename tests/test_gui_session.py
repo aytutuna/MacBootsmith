@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import os
 import sys
@@ -189,6 +191,10 @@ GPU_REPORT = {"CPU": {"Processor Name": "Core i5-10400", "Manufacturer": "Genuin
 
 class ExpressTest(unittest.TestCase):
     def setUp(self):
+        # automatic answers print their explanation; keep it out of the test output
+        quiet = contextlib.redirect_stdout(io.StringIO())
+        quiet.__enter__()
+        self.addCleanup(quiet.__exit__, None, None, None)
         self.calls = []
         self.defaults = []
         self.ocpe = FakeOcpe()

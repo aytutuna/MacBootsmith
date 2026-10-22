@@ -11,8 +11,10 @@ import zipfile
 import tempfile
 import threading
 
+from Scripts import explain
+
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
-DEFAULT_VALUE = re.compile(r"\(default:\s*([^)]*)\)", re.IGNORECASE)
+DEFAULT_VALUE = explain.DEFAULT_VALUE
 
 class HeadlessExit(BaseException):
     pass
@@ -104,6 +106,10 @@ class Utils:
     _default_prompt = None
     _default_count = 0
 
+    explained_prompt = None
+    decisions = []
+    _stage_keys = ()
+
     def __init__(self, script_name = "MacBootsmith"):
         self.script_name = script_name
 
@@ -114,6 +120,7 @@ class Utils:
         cls._headless_repeat_count = 0
         cls._headless_prompt_counts = {}
         cls._headless_total_count = 0
+        cls.explained_prompt = None
 
     @classmethod
     def set_presets(cls, mapping):
@@ -125,6 +132,35 @@ class Utils:
         cls.accept_defaults = bool(enabled)
         cls._default_prompt = None
         cls._default_count = 0
+
+    @classmethod
+    def explain(cls, prompt):
+        key = explain.decision_for_prompt(prompt)
+        if key is not None and prompt != cls.explained_prompt:
+            print("")
+            print(explain.render_decision(key))
+            print("")
+        cls.explained_prompt = prompt
+
+    @classmethod
+    def record_decision(cls, prompt, answer):
+        key = explain.decision_for_prompt(prompt)
+        if key is None:
+            return
+        # a prompt asked again replaces its earlier answer
+        cls.decisions = [item for item in cls.decisions if item[2] != prompt] + [(key, answer, prompt)]
+
+    @classmethod
+    def decision_lines(cls):
+        return [explain.decision_line(key, answer, prompt) for key, answer, prompt in cls.decisions]
+
+    @classmethod
+    def stage_notes(cls, step):
+        keys = explain.STEP_STAGES.get(step, ())
+        if not keys or set(keys) <= set(cls._stage_keys):
+            return []
+        cls._stage_keys = keys
+        return [explain.stages[key] for key in keys]
 
     @classmethod
     def automatic_answer(cls, prompt):
@@ -409,13 +445,19 @@ class Utils:
 
     def request_input(self, prompt="Press Enter to continue..."):
         if Utils.prompt_handler is None:
+            Utils.explain(str(prompt))
             answer = Utils.automatic_answer(str(prompt))
             if answer is not None:
                 print("{}{}".format(prompt, answer or "[Enter]"))
+                if Utils.accept_defaults:
+                    Utils.record_decision(str(prompt), answer)
                 return answer
 
         if Utils.is_headless():
-            return self.headless_answer(prompt)
+            answer = self.headless_answer(prompt)
+            if Utils.accept_defaults:
+                Utils.record_decision(str(prompt), answer)
+            return answer
 
         handler = Utils.prompt_handler
         if handler is not None:
@@ -443,6 +485,8 @@ class Utils:
                 print("{}: done".format(title))
             elif 0 <= current_step_index < len(steps):
                 print("[{}/{}] {}...".format(current_step_index + 1, len(steps), steps[current_step_index]))
+                for note in Utils.stage_notes(steps[current_step_index]):
+                    print(explain.wrap("      " + note, 100, "      "))
             return
 
         self.head(title)
@@ -458,6 +502,12 @@ class Utils:
                     print("  [\033[1;93m>\033[0m] {}...".format(step))
                 else:
                     print("  [ ] {}".format(step))
+            if 0 <= current_step_index < len(steps):
+                notes = Utils.stage_notes(steps[current_step_index])
+                if notes:
+                    print("")
+                for note in notes:
+                    print(explain.wrap("  " + note, 68, "  "))
         print("")
 
     def head(self, text = None, width = 68, resize=True):
@@ -475,6 +525,7 @@ class Utils:
         if resize:
             self.adjust_window_size()
         os.system('cls' if os.name=='nt' else 'clear')
+        Utils.explained_prompt = None
         if text == None:
             text = self.script_name
         separator = "═" * (width - 2)

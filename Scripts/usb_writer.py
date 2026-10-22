@@ -1,3 +1,4 @@
+from Scripts import explain
 from Scripts import run
 from Scripts import utils
 import hashlib
@@ -249,6 +250,8 @@ class USBWriter:
     def create_installer(self, efi_dir, recovery_dir, dry_run=False, expected_disk=None):
         if not self._supported():
             return None
+        print("")
+        print(explain.wrap(explain.stages["usb_write"], 68))
         print("")
         if dry_run:
             print("Dry run: a real run needs administrator rights.")

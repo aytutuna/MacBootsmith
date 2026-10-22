@@ -7,6 +7,7 @@ from Scripts import app_paths
 from Scripts import bios_checklist
 from Scripts import compatibility_checker
 from Scripts import config_prodigy
+from Scripts import explain
 from Scripts import gathering_files
 from Scripts import hardware_customizer
 from Scripts import kext_maestro
@@ -161,9 +162,9 @@ class OCPE:
             print("\033[1;91mReview these risks before continuing.\033[0m")
             print("")
             option = self.u.request_input("Continue with OpenCore Legacy Patcher? (yes/No): ").strip().lower()
-            if option == "yes":
+            if option in ("y", "yes"):
                 return True
-            elif option == "no":
+            elif option in ("", "n", "no"):
                 return False
 
     def select_macos_version(self, hardware_report, native_macos_version, ocl_patched_macos_version):
@@ -215,8 +216,6 @@ class OCPE:
             print("\033[1;93mNote:\033[0m")
             print("- To select a major version, enter the number (e.g., 19).")
             print("- To specify a full version, use the Darwin version format (e.g., 22.4.6).")
-            print("- Press Enter to accept the suggested version.")
-            print("- Versions marked Requires OpenCore Legacy Patcher install fine but need root patches inside macOS for full graphics or Wi-Fi; prefer an unmarked version for a first install.")
             print("")
             print("Q. Quit")
             print("")
@@ -727,19 +726,32 @@ class OCPE:
             print("\033[91mError: {}\033[0m".format(e))
             return express, None, e
 
+    def print_summary_lines(self, summary):
+        for line in session.summary_lines(summary):
+            print(explain.wrap(line, 68, "    " if line.startswith("  - ") else "  "))
+
     def express_menu(self):
         express, summary, _ = self.express()
         if summary:
             self.u.head(session.EXPRESS_TITLE)
             print("")
-            for line in session.summary_lines(summary):
-                print(line)
+            self.print_summary_lines(summary)
             self.print_bios_requirements(summary["bios"])
             print("")
             print("Next: 10. Create USB Installer")
         print("")
         self.u.request_input("Press Enter to main menu...")
         return express
+
+    def show_glossary(self):
+        entries = explain.render_glossary()
+        for start in range(0, len(entries), 8):
+            self.u.head("Glossary")
+            print("")
+            for entry in entries[start:start + 8]:
+                print(entry)
+            print("")
+            self.u.request_input("Press Enter to main menu..." if start + 8 >= len(entries) else "Press Enter for more...")
 
     def run_headless_express(self, answers):
         self.u.set_headless(answers)
@@ -752,8 +764,7 @@ class OCPE:
         if not summary:
             return self.print_headless_summary(3 if isinstance(error, session.UnsupportedHardware) else 1)
         print("")
-        for line in session.summary_lines(summary):
-            print(line)
+        self.print_summary_lines(summary)
         self.print_bios_requirements(summary["bios"])
         return self.print_headless_summary(0 if summary["ocvalidate"] == "passed" else 2, summary["smbios"], summary["ocvalidate"])
 
@@ -963,12 +974,17 @@ class OCPE:
             print("10. Create USB Installer")
             print("11. Analyze Boot Log")
             print("")
+            print("G. Glossary")
             print("Q. Quit")
             print("")
 
             option = self.u.request_input("Select an option: ")
             if option.lower() == "q":
                 self.u.exit_program()
+
+            if option.lower() == "g":
+                self.show_glossary()
+                continue
 
             if option.lower() == "a":
                 express = self.express_menu()

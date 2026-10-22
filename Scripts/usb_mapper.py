@@ -22,6 +22,7 @@
 # SOFTWARE.
 
 from Scripts import app_paths
+from Scripts import explain
 from Scripts import run
 from Scripts import utils
 import copy
@@ -708,6 +709,8 @@ class USBMapper:
 
     def show_discovery(self, controllers):
         self.utils.head("USB Port Mapping: Discover Ports")
+        print("")
+        print(explain.wrap(explain.stages["usb_map"], 68))
         print("")
         print("Plug a USB 2.0 device and then a USB 3.0 device into every port you use,")
         print("including front-panel and Type-C ports. Ports that see a device stay marked.")

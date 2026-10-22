@@ -44,7 +44,7 @@ Open work is tracked in `docs/reference/gaps.md`.
 
 ### Quick start
 
-Run `MacBootsmith.bat`, click "Build everything with recommended choices" on the Welcome page, then follow the USB page. The button scans this PC, picks the suggested macOS version, builds and validates the EFI, downloads the recovery image (not when ocvalidate reports errors) and prepares the full post-install kit. It takes every default shown as (default: ...); yes/no questions, device choices and the OpenCore Legacy Patcher warning are still asked. It never writes a USB drive. Without a saved USB map the build uses UTBDefault.kext; map the ports later and build again. In the terminal menu the same run is option A.
+Run `MacBootsmith.bat`, click "Build everything with recommended choices" on the Welcome page, then follow the USB page. The button scans this PC, picks the suggested macOS version, builds and validates the EFI, downloads the recovery image (not when ocvalidate reports errors) and prepares the full post-install kit. It takes every default shown as (default: ...); yes/no questions, device choices and the OpenCore Legacy Patcher warning are still asked. It never writes a USB drive. Without a saved USB map the build uses UTBDefault.kext; map the ports later and build again. In the terminal menu the same run is option A. Each build question explains what it asks, why, and when to pick each answer (the same text is in `docs/reference/choices.md`); the words it uses are explained behind the "What do these words mean?" button in the window's footer and under G in the terminal menu.
 
 ### Graphical interface
 

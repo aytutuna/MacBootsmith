@@ -7,6 +7,7 @@ from tkinter import messagebox
 from tkinter import ttk
 
 from Scripts import usb_mapper
+from Scripts.datasets.explanations import decisions
 from Scripts.gui import widgets
 from Scripts.gui import winsupport
 from Scripts.gui.session import StageError
@@ -26,6 +27,7 @@ OCVALIDATE_TEXT = {
 class Page(ttk.Frame):
     title = ""
     heading = ""
+    explains = ()
 
     def __init__(self, app):
         super().__init__(app.page_host, padding=(16, 12))
@@ -33,10 +35,12 @@ class Page(ttk.Frame):
         self.session = app.session
         self.columnconfigure(0, weight=1)
         ttk.Label(self, text=self.heading or self.title, font=widgets.heading_font(self)).grid(row=0, column=0, sticky="w", pady=(0, 8))
+        if self.explains:
+            self.note(self, "\n".join("{} {}".format(decisions[key]["what"], decisions[key]["why"]) for key in self.explains), 1, tag="grey")
         self.body = ttk.Frame(self)
-        self.body.grid(row=1, column=0, sticky="nsew")
+        self.body.grid(row=2, column=0, sticky="nsew")
         self.body.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
+        self.rowconfigure(2, weight=1)
         self.build()
 
     def build(self):
@@ -186,6 +190,12 @@ class WelcomePage(Page):
 class HardwarePage(Page):
     title = "Hardware"
     heading = "Hardware report and compatibility"
+    LEGEND = (
+        ("supported", "Supported", "macOS has its own driver for it in the versions shown."),
+        ("oclp", "Needs root patches (OCLP)", "Works only after a root patch, which copies driver files Apple removed back into the installed macOS; lower security, redone after every update."),
+        ("unsupported", "Unsupported", "macOS has no driver for it; for a graphics card that means no acceleration, other devices simply do not work."),
+        ("unchecked", "Unchecked", "The compatibility check did not rate it, so it does not limit the macOS version.")
+    )
 
     def build(self):
         self.acpi_dir = None
@@ -205,9 +215,15 @@ class HardwarePage(Page):
                                          {"section": 150, "device": 300, "support": 240, "max": 160, "oclp": 190}, height=10)
         frame.grid(row=2, column=0, sticky="nsew", pady=(4, 6))
         self.body.rowconfigure(2, weight=1)
-        self.summary = self.note(self.body, "", 3)
+        legend = ttk.Frame(self.body)
+        legend.grid(row=3, column=0, sticky="ew", pady=(0, 6))
+        legend.columnconfigure(1, weight=1)
+        for row, (status, name, text) in enumerate(self.LEGEND):
+            ttk.Label(legend, text=name, foreground=widgets.COLORS[STATUS_TAGS[status]]).grid(row=row, column=0, sticky="nw", padx=(0, 8))
+            ttk.Label(legend, text=text, foreground=widgets.COLORS["grey"], wraplength=760, justify="left").grid(row=row, column=1, sticky="w")
+        self.summary = self.note(self.body, "", 4)
         frame, self.messages = widgets.scrolled_text(self.body, height=4)
-        frame.grid(row=4, column=0, sticky="nsew")
+        frame.grid(row=5, column=0, sticky="nsew")
 
     def can_next(self):
         return self.session.hardware_report is not None
@@ -264,6 +280,7 @@ class HardwarePage(Page):
 class MacOSPage(Page):
     title = "macOS version"
     heading = "Choose the macOS version"
+    explains = ("macos_version",)
 
     def build(self):
         self.choice = tk.IntVar(value=0)
@@ -336,35 +353,64 @@ class OptionsPage(Page):
         self.vars = {}
         self.frames = {}
         self.hints = {}
-        grid = ttk.Frame(self.body)
-        grid.grid(row=0, column=0, sticky="ew")
-        grid.columnconfigure(0, weight=1, uniform="options")
-        grid.columnconfigure(1, weight=1, uniform="options")
+        self.wrapped = []
+        outer, canvas, grid = widgets.scrolled_frame(self.body)
+        outer.grid(row=0, column=0, sticky="nsew")
+        self.body.rowconfigure(0, weight=3)
+        grid.columnconfigure(0, weight=1)
+        canvas.bind("<Configure>", self.rewrap, add="+")
         for position, (key, title, options) in enumerate(self.GROUPS):
             frame = ttk.LabelFrame(grid, text=title, padding=(10, 4))
-            frame.grid(row=position // 2, column=position % 2, sticky="nsew", padx=(0, 6), pady=(0, 6))
+            frame.grid(row=position, column=0, sticky="ew", padx=(0, 6), pady=(0, 6))
             frame.columnconfigure(0, weight=1)
             var = tk.StringVar(value=self.session.options.get(key) or "")
             self.vars[key] = var
             hint = ttk.Label(frame, text="")
             hint.grid(row=0, column=0, sticky="w")
+            row = self.explain(frame, key, 1)
             buttons = []
-            for index, (value, text) in enumerate(options):
+            for value, text in options:
                 button = ttk.Radiobutton(frame, text=text, value=value, variable=var)
-                button.grid(row=index + 1, column=0, sticky="w")
+                button.grid(row=row, column=0, sticky="w")
+                row = self.when(frame, key, value, row + 1)
                 buttons.append(button)
             self.frames[key] = buttons
             self.hints[key] = hint
         frame = ttk.LabelFrame(grid, text="OpenCore build type", padding=(10, 4))
-        frame.grid(row=len(self.GROUPS) // 2, column=len(self.GROUPS) % 2, sticky="nsew", padx=(0, 6), pady=(0, 6))
+        frame.grid(row=len(self.GROUPS), column=0, sticky="ew", padx=(0, 6), pady=(0, 6))
+        frame.columnconfigure(0, weight=1)
         self.debug = tk.BooleanVar(value=bool(self.session.options.get("debug")))
-        ttk.Label(frame, text="DEBUG only to diagnose a boot that fails", foreground=widgets.COLORS["grey"]).grid(row=0, column=0, sticky="w")
-        ttk.Radiobutton(frame, text="RELEASE (normal)", value=False, variable=self.debug).grid(row=1, column=0, sticky="w")
-        ttk.Radiobutton(frame, text="DEBUG: writes opencore-*.txt to the EFI partition", value=True, variable=self.debug).grid(row=2, column=0, sticky="w")
+        row = self.explain(frame, "debug", 0)
+        ttk.Radiobutton(frame, text="RELEASE (normal)", value=False, variable=self.debug).grid(row=row, column=0, sticky="w")
+        row = self.when(frame, "debug", "no", row + 1)
+        ttk.Radiobutton(frame, text="DEBUG: writes opencore-*.txt to the EFI partition", value=True, variable=self.debug).grid(row=row, column=0, sticky="w")
+        self.when(frame, "debug", "yes", row + 1)
         self.note(self.body, "Other choices the stages need (for example a GPU or Wi-Fi card to keep) appear as questions while the build is configured.", 1, tag="grey")
         frame, self.summary = widgets.scrolled_text(self.body, height=6)
         frame.grid(row=2, column=0, sticky="nsew")
         self.body.rowconfigure(2, weight=1)
+
+    def grey(self, parent, text, row, indent=0):
+        label = ttk.Label(parent, text=text, foreground=widgets.COLORS["grey"], wraplength=700 - indent, justify="left")
+        label.grid(row=row, column=0, sticky="w", padx=(indent, 0), pady=(0, 2))
+        self.wrapped.append((label, indent))
+        return label
+
+    def explain(self, parent, key, row):
+        self.grey(parent, decisions[key]["what"], row)
+        self.grey(parent, decisions[key]["why"], row + 1)
+        return row + 2
+
+    def when(self, parent, key, value, row):
+        for option in decisions[key]["options"]:
+            if option[0] == value:
+                self.grey(parent, option[2], row, 24)
+                return row + 1
+        return row
+
+    def rewrap(self, event):
+        for label, indent in self.wrapped:
+            label.configure(wraplength=max(240, event.width - 60 - indent))
 
     def darwin(self):
         return self.app.page_by_class(MacOSPage).selected()
@@ -413,6 +459,7 @@ class OptionsPage(Page):
 class UsbMapPage(Page):
     title = "USB mapping"
     heading = "USB port mapping"
+    explains = ("usb_map",)
 
     COLUMNS = ("use", "port", "name", "speed", "type", "devices", "seen")
 
@@ -649,6 +696,7 @@ class BuildPage(Page):
 class RecoveryPage(Page):
     title = "Recovery"
     heading = "Download the macOS recovery image"
+    explains = ("recovery",)
 
     def build(self):
         self.version = self.note(self.body, "", 0)
@@ -695,6 +743,7 @@ class RecoveryPage(Page):
 class UsbWriterPage(Page):
     title = "USB"
     heading = "Write the USB installer"
+    explains = ("usb_disk", "usb_erase")
 
     def build(self):
         self.disks = []
@@ -846,6 +895,7 @@ class UsbWriterPage(Page):
 class PostInstallPage(Page):
     title = "Post-install"
     heading = "Post-install kit and BIOS checklist"
+    explains = ("postinstall_kit",)
 
     def build(self):
         bar = ttk.Frame(self.body)

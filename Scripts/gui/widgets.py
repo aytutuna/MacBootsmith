@@ -42,6 +42,32 @@ def scrolled_text(parent, height=10, width=80, mono=False, wrap="word"):
     return frame, text
 
 
+def scrolled_frame(parent):
+    outer = ttk.Frame(parent)
+    canvas = tk.Canvas(outer, borderwidth=0, highlightthickness=0)
+    scrollbar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+    inner = ttk.Frame(canvas)
+    window = canvas.create_window((0, 0), window=inner, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+    canvas.grid(row=0, column=0, sticky="nsew")
+    scrollbar.grid(row=0, column=1, sticky="ns")
+    outer.rowconfigure(0, weight=1)
+    outer.columnconfigure(0, weight=1)
+    inner.bind("<Configure>", lambda _: canvas.configure(scrollregion=canvas.bbox("all")))
+    canvas.bind("<Configure>", lambda event: canvas.itemconfigure(window, width=event.width), add="+")
+
+    def wheel(event):
+        canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+    def leave(event):
+        # Leave also fires when the pointer moves onto a child of the frame
+        widget = canvas.winfo_containing(event.x_root, event.y_root)
+        if widget is None or not str(widget).startswith(str(outer)):
+            canvas.unbind_all("<MouseWheel>")
+    inner.bind("<Enter>", lambda _: canvas.bind_all("<MouseWheel>", wheel))
+    inner.bind("<Leave>", leave)
+    return outer, canvas, inner
+
+
 def set_text(text, content, tag=None):
     text.configure(state="normal")
     text.delete("1.0", "end")

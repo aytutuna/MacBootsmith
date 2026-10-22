@@ -4,7 +4,9 @@ Workflow: `.github/workflows/ci.yml`. Triggers: push, pull request, manual dispa
 
 ## Jobs
 
-- **test** (windows-latest): `python -m unittest discover -s tests -v`.
+- **test** (windows-latest): `python -m unittest discover -s tests -v`. It fails when `docs/reference/choices.md` differs from what
+  `tests/ci/render_choices.py` generates; run `python tests/ci/render_choices.py` (it writes the file) after editing
+  `Scripts/datasets/explanations.py`.
 - **build** (windows-latest, needs test): matrix over the two fixtures. Runs
   `python MacBootsmith.py --headless tests/fixtures/answers-<name>.json`.
   Exit codes: 0 = built and ocvalidate passed, 2 = built but ocvalidate reported errors or could not run

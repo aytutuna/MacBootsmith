@@ -2,6 +2,7 @@ import re
 import threading
 import traceback
 
+from Scripts import explain
 from Scripts import utils
 
 YES_NO = re.compile(r"\(\s*(y(?:es)?)\s*/\s*(n(?:o)?)\s*\)", re.IGNORECASE)
@@ -117,11 +118,12 @@ def last_percent(line):
 
 
 class PromptRequest:
-    def __init__(self, prompt, captured, choices, default=None):
+    def __init__(self, prompt, captured, choices, default=None, decision=None):
         self.prompt = prompt
         self.captured = captured
         self.choices = choices
         self.default = default
+        self.decision = decision
         self.answer = None
         self.cancelled = False
         self.event = threading.Event()
@@ -209,6 +211,12 @@ class PromptBroker:
         self.post(("log", text))
         self.check_cancel()
 
+    def automatic(self, prompt, answer):
+        utils.Utils.explain(prompt)
+        if self.accept_defaults:
+            utils.Utils.record_decision(prompt, answer)
+        return answer
+
     def progress(self, title, steps, index, done):
         self.post(("progress", title, list(steps), index, done))
 
@@ -220,10 +228,10 @@ class PromptBroker:
 
         preset = self.preset_for(prompt)
         if preset is not None:
-            return preset
+            return self.automatic(prompt, preset)
         # the prompts treat an empty answer as their default
         if self.accepted_default(prompt):
-            return ""
+            return self.automatic(prompt, "")
 
         context = captured or ""
         if prompt == self.last_prompt and self.last_captured and self.last_captured not in context:
@@ -231,7 +239,7 @@ class PromptBroker:
         self.last_prompt = prompt
         self.last_captured = context
 
-        request = PromptRequest(prompt, context, parse_choices(prompt, context), default_answer(prompt))
+        request = PromptRequest(prompt, context, parse_choices(prompt, context), default_answer(prompt), explain.decision_for_prompt(prompt))
         self.pending = request
         try:
             self.post(("prompt", request))

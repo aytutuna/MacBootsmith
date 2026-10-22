@@ -266,6 +266,10 @@ class PromptBrokerTest(unittest.TestCase):
     def setUp(self):
         self.messages = queue.Queue()
         self.broker = broker.PromptBroker(self.messages.put)
+        # automatic answers print their explanation; keep it out of the test output
+        quiet = contextlib.redirect_stdout(io.StringIO())
+        quiet.__enter__()
+        self.addCleanup(quiet.__exit__, None, None, None)
 
     def test_press_enter_is_acknowledged_without_a_dialog(self):
         self.assertEqual(self.broker("Press Enter to continue...", "text"), "")
