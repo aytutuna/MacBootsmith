@@ -478,9 +478,12 @@ class MacBootsmithApp(tk.Tk):
             visited.append(self.pages[index].title)
             if index + 1 < len(self.pages):
                 self.after(step, lambda: visit(index + 1))
+            else:
+                self.after(step, self.destroy)
 
         self.after(10, lambda: visit(0))
-        self.after(duration_ms, self.destroy)
+        # safety net only; a slow page used to hit this before the last visit
+        self.after(duration_ms * 5, self.destroy)
         self.mainloop()
         return visited
 
