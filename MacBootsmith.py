@@ -19,7 +19,6 @@ from Scripts import usb_mapper
 from Scripts import usb_writer
 from Scripts import utils
 from Scripts import validator
-import updater
 import os
 import plistlib
 import sys
@@ -31,7 +30,7 @@ import time
 
 class OCPE:
     def __init__(self):
-        self.u = utils.Utils("OpCore Simplify")
+        self.u = utils.Utils("MacBootsmith")
         self.u.clean_temporary_dir()
         self.ac = acpi_guru.ACPIGuru()
         self.c = compatibility_checker.CompatibilityChecker()
@@ -1053,32 +1052,66 @@ def analyze_log(path):
     print(analyzer.format_report(analyzer.analyze()))
     return 0
 
-if __name__ == '__main__':
-    if "--analyze-log" in sys.argv:
-        log_index = sys.argv.index("--analyze-log")
-        if log_index + 1 >= len(sys.argv):
-            print("Usage: python OpCore-Simplify.py --analyze-log <log file, folder or drive>")
-            sys.exit(1)
-        sys.exit(analyze_log(sys.argv[log_index + 1]))
+def redirect_missing_streams():
+    # pythonw and the windowed exe have no console, so output goes to a log beside the app
+    if sys.stdout is not None and sys.stderr is not None:
+        return
+    try:
+        handle = open(os.path.join(app_paths.app_dir(), "MacBootsmith.log"), "w", encoding="utf-8", buffering=1)
+    except OSError:
+        handle = open(os.devnull, "w", encoding="utf-8")
+    if sys.stdout is None:
+        sys.stdout = handle
+    if sys.stderr is None:
+        sys.stderr = handle
 
-    if "--headless" in sys.argv:
-        headless_index = sys.argv.index("--headless")
-        if headless_index + 1 >= len(sys.argv):
-            print("Usage: python OpCore-Simplify.py --headless <answers.json>")
-            sys.exit(1)
-        sys.exit(run_headless(sys.argv[headless_index + 1]))
+def option_value(argv, flag):
+    index = argv.index(flag)
+    return argv[index + 1] if index + 1 < len(argv) else None
 
-    if "--update" in sys.argv:
-        update_flag = updater.Updater().run_update()
-        if update_flag:
-            os.execv(sys.executable, ['python3'] + sys.argv)
-
+def run_terminal():
     o = OCPE()
     while True:
         try:
             o.main()
+        except EOFError:
+            return 0
         except Exception as e:
             o.u.head("An Error Occurred")
             print("")
             print(traceback.format_exc())
             o.u.request_input()
+
+def main(argv):
+    redirect_missing_streams()
+
+    if "--analyze-log" in argv:
+        location = option_value(argv, "--analyze-log")
+        if not location:
+            print("Usage: python MacBootsmith.py --analyze-log <log file, folder or drive>")
+            return 1
+        return analyze_log(location)
+
+    if "--headless" in argv:
+        answers = option_value(argv, "--headless")
+        if not answers:
+            print("Usage: python MacBootsmith.py --headless <answers.json>")
+            return 1
+        return run_headless(answers)
+
+    # the window has its own dry-run checkbox, the flag only applies to the menu
+    if "--terminal" in argv or "--dry-run-usb" in argv:
+        return run_terminal()
+
+    try:
+        import tkinter
+    except ImportError:
+        print("tkinter is not available, starting the terminal menu instead.")
+        return run_terminal()
+
+    from Scripts.gui import app
+    utils.Utils.install_output_proxy()
+    return app.main(argv)
+
+if __name__ == '__main__':
+    sys.exit(main(sys.argv[1:]))

@@ -13,7 +13,7 @@ from Scripts.datasets import pci_data
 from Scripts.datasets import recovery_boards
 
 MAIN_MODULE_NAME = "macbootsmith_main"
-MAIN_SCRIPT = "OpCore-Simplify.py"
+MAIN_SCRIPT = "MacBootsmith.py"
 VERDICT_SECTIONS = ("CPU", "GPU", "Sound", "Biometric", "Network", "Storage Controllers", "Bluetooth", "SD Controller")
 
 

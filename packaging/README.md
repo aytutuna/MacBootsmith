@@ -17,9 +17,9 @@ The CI job `package` (`.github/workflows/ci.yml`) does the same on `windows-late
 
 ## What goes where
 
-- Bundled, read-only (inside `_internal`): the Python code, `OpCore-Simplify.py`, `Scripts/usb_enum.cs`, `Scripts/sniffer/datasets/*.ids`, `Scripts/datasets/background_picker.icns` and `docs/reference/*.md`.
+- Bundled, read-only (inside `_internal`): the Python code, `MacBootsmith.py`, `Scripts/usb_enum.cs`, `Scripts/sniffer/datasets/*.ids`, `Scripts/datasets/background_picker.icns` and `docs/reference/*.md`.
 - Written next to `MacBootsmith.exe`: `Results`, `SysReport`, `OCK_Files`, the downloaded tools in `Scripts` (macserial, ocvalidate, iasl, acpidump) and `MacBootsmith.log`. `Scripts/app_paths.py` makes this split: `app_dir()` is the exe folder when frozen and the repository root otherwise; `bundle_dir()` is `_internal` when frozen.
-- Without a console, standard output goes to `MacBootsmith.log` next to the exe. `--headless` and `--analyze-log` work as in `OpCore-Simplify.py`; their output lands in that log.
+- Without a console, standard output goes to `MacBootsmith.log` next to the exe. The exe is built from `MacBootsmith.py`, so `--headless`, `--analyze-log` and `--self-test` work as they do from source; their output lands in that log.
 
 Put the folder somewhere the user can write to (for example the Desktop or Downloads), not `Program Files`.
 

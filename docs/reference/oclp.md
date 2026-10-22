@@ -123,7 +123,7 @@ The OCLP docs in `_ref/oclp/docs` contain no mention of the lzhoang2801 fork, of
 - WhateverGreen has AMD connector patching problems on macOS 26.
 - hackintosh.com's page calls Tahoe the last Intel-supporting macOS (macOS 27 "Golden Gate" is Apple Silicon only).
 
-The app (`OpCore-Simplify.py show_oclp_warning`, `kext_maestro.py`) already says on Tahoe that OCLP "rolls back AppleHDA" and selects `AirPortBrcmNIC-Tahoe`, `-amfipassbeta` and similar; those behaviours belong to the fork and have no counterpart in the official OCLP docs. Differences between official OCLP and the fork are therefore not documented in the listed sources.
+The app (`MacBootsmith.py show_oclp_warning`, `kext_maestro.py`) already says on Tahoe that OCLP "rolls back AppleHDA" and selects `AirPortBrcmNIC-Tahoe`, `-amfipassbeta` and similar; those behaviours belong to the fork and have no counterpart in the official OCLP docs. Differences between official OCLP and the fork are therefore not documented in the listed sources.
 
 Sources: absence checked with a repository-wide search of `_ref/oclp/docs` for "lzhoang", "Tahoe", "hackintosh", "fork"; `_ref/dortania-install-guide/extras/tahoe.md`; `_ref/hackintosh-com/index.html`.
 

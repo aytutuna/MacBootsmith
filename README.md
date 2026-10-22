@@ -44,7 +44,7 @@ Open work is tracked in `docs/reference/gaps.md`.
 
 ### Graphical interface
 
-Double-click `MacBootsmith-GUI.bat` (or run `pythonw MacBootsmith.pyw`). The window walks through the stages in order, with a step list on the left and a log at the bottom:
+Double-click `MacBootsmith.bat` (or run `python MacBootsmith.py`). It finds Python 3, offers to install it from python.org when it is missing, and opens the window without a console. If Tkinter is missing, the terminal menu starts instead. The window walks through the stages in order, with a step list on the left and a log at the bottom:
 
 1. Welcome: requirements and the Windows preflight (BitLocker, partition style, EFI partition size).
 2. Hardware: scan this PC or open an existing report, then read the compatibility verdict per device.
@@ -59,11 +59,11 @@ Double-click `MacBootsmith-GUI.bat` (or run `pythonw MacBootsmith.pyw`). The win
 
 The window drives the same OpenCore engine stages as the terminal menu and headless mode; nothing is decided differently. When a stage needs an answer that has no control on the page (for example which of two GPUs to keep), a dialog shows the stage's own text and options. Cancel stops the running stage at its next output or question.
 
-`python MacBootsmith.pyw --self-test` opens the window, visits every page and closes after two seconds (used by CI).
+`python MacBootsmith.py --self-test` opens the window, visits every page and closes after two seconds (used by CI).
 
 ### Terminal menu
 
-Run `OpCore-Simplify.bat` as administrator. The main menu offers:
+Run `MacBootsmith.bat --terminal` (or `python MacBootsmith.py --terminal`) as administrator. The main menu offers:
 
 1. Select Hardware Report: scan this PC or load an existing report, then check compatibility.
 2. Select macOS Version: choose the target release.
@@ -82,7 +82,7 @@ Then boot from the USB and work through the on-screen BIOS checklist.
 Headless mode builds an EFI without prompts, from a JSON answers file (used by CI and for scripting):
 
 ```
-python OpCore-Simplify.py --headless <answers.json>
+python MacBootsmith.py --headless <answers.json>
 ```
 
 Add `"debug": true` to the answers file for a DEBUG EFI (see `tests/fixtures/answers-desktop-debug.json`).
@@ -90,7 +90,7 @@ Add `"debug": true` to the answers file for a DEBUG EFI (see `tests/fixtures/ans
 The boot log analyser also runs on its own; it exits 1 when no log is found:
 
 ```
-python OpCore-Simplify.py --analyze-log <log file, folder or drive>
+python MacBootsmith.py --analyze-log <log file, folder or drive>
 ```
 
 ## Development

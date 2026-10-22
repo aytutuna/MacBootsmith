@@ -69,7 +69,7 @@ jobs:
         run: |
           python - <<'EOF'
           import importlib.util, sys
-          spec = importlib.util.spec_from_file_location("ocs", "OpCore-Simplify.py")
+          spec = importlib.util.spec_from_file_location("ocs", "MacBootsmith.py")
           ocs = importlib.util.module_from_spec(spec)
           spec.loader.exec_module(ocs)
           report_path, acpi_dir, error = ocs.OCPE().export_hardware_report()
@@ -85,7 +85,7 @@ jobs:
           PYTHONIOENCODING: utf-8
         run: |
           set +e
-          python OpCore-Simplify.py --headless "${{ matrix.answers }}"
+          python MacBootsmith.py --headless "${{ matrix.answers }}"
           code=$?
           echo "headless exit code: $code (allowed: ${{ matrix.allowed }})"
           case " ${{ matrix.allowed }} " in
@@ -296,7 +296,7 @@ jobs:
         if: success() || failure()
         shell: bash
         run: |
-          python OpCore-Simplify.py --analyze-log serial.log | tee analysis.txt
+          python MacBootsmith.py --analyze-log serial.log | tee analysis.txt
           if ! grep -q "^Verdict: *Reached the boot picker" analysis.txt; then
             echo "::error::${{ matrix.fixture }}: the boot log analysis did not report the boot picker"
             exit 1

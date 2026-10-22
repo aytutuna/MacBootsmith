@@ -97,7 +97,7 @@ class Utils:
     _headless_prompt_counts = {}
     _headless_total_count = 0
 
-    def __init__(self, script_name = "OpCore Simplify"):
+    def __init__(self, script_name = "MacBootsmith"):
         self.script_name = script_name
 
     @classmethod
@@ -465,9 +465,8 @@ class Utils:
         print(f" ┌{separator}┐ ")
         
         contacts = {
-            "Facebook": "https://www.facebook.com/macforce2601",
-            "Telegram": "https://t.me/lzhoang2601",
-            "GitHub": "https://github.com/lzhoang2801/OpCore-Simplify"
+            "Issues": "https://github.com/aytutuna/MacBootsmith/issues",
+            "Based on": "https://github.com/lzhoang2801/OpCore-Simplify"
         }
         
         for platform, link in contacts.items():

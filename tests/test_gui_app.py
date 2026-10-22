@@ -1,9 +1,13 @@
+import contextlib
+import importlib.util
+import io
 import os
 import re
 import subprocess
 import sys
 import time
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from repo_path import FIXTURES
@@ -156,7 +160,7 @@ class AppSmokeTest(TkTestCase):
 
 class SelfTestFlagTest(TkTestCase):
     def test_launcher_self_test_opens_and_closes(self):
-        script = os.path.join(REPO_ROOT, "MacBootsmith.pyw")
+        script = os.path.join(REPO_ROOT, "MacBootsmith.py")
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
         result = subprocess.run([sys.executable, script, "--self-test"], capture_output=True, text=True, encoding="utf-8", env=env, timeout=120)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -168,13 +172,13 @@ class LauncherFilesTest(unittest.TestCase):
         with open(os.path.join(REPO_ROOT, name), "r", encoding="utf-8") as handle:
             return handle.read()
 
-    def test_gui_batch_file_is_well_formed(self):
-        text = self.read("MacBootsmith-GUI.bat")
+    def test_batch_file_is_well_formed(self):
+        text = self.read("MacBootsmith.bat")
         lines = text.splitlines()
         self.assertEqual(lines[0].strip().lower(), "@echo off")
-        self.assertIn("MacBootsmith.pyw", text)
-        self.assertIn("pythonw.exe", text)
-        self.assertIn('"!pyexe!" "!script!" %*', text)
+        self.assertIn('set "script=!thisDir!MacBootsmith.py"', text)
+        self.assertIn('start "" "!pydir!pythonw.exe" "!script!"', text)
+        self.assertIn('"!py3path!" "!script!" %*', text)
         self.assertEqual(text.count("("), text.count(")"))
         labels = {line.strip()[1:].split()[0].lower() for line in lines if line.strip().startswith(":") and not line.strip().startswith("::")}
         targets = {target.lower() for target in re.findall(r"(?:call|goto)\s+:(\w+)", text, re.IGNORECASE)}
@@ -186,13 +190,12 @@ class LauncherFilesTest(unittest.TestCase):
                 continue
             self.assertEqual(line.count('"') % 2, 0, line)
 
-    def test_terminal_launcher_still_runs_the_menu_script(self):
-        text = self.read("OpCore-Simplify.bat")
-        self.assertIn('set "script_name=%~n0.py"', text)
-        self.assertNotIn("MacBootsmith", text)
+    def test_old_entry_points_are_gone(self):
+        for name in ("OpCore-Simplify.py", "OpCore-Simplify.bat", "MacBootsmith.pyw", "MacBootsmith-GUI.bat", "updater.py"):
+            self.assertFalse(os.path.exists(os.path.join(REPO_ROOT, name)), name)
 
-    def test_pyw_launcher_routes_headless_and_never_imports_pyinstaller(self):
-        text = self.read("MacBootsmith.pyw")
+    def test_entry_routes_headless_and_never_imports_pyinstaller(self):
+        text = self.read("MacBootsmith.py")
         self.assertIn("--headless", text)
         self.assertIn("--self-test", self.read(os.path.join("Scripts", "gui", "app.py")))
         for root, _, files in os.walk(os.path.join(REPO_ROOT, "Scripts")):
@@ -202,8 +205,8 @@ class LauncherFilesTest(unittest.TestCase):
                         self.assertNotIn("import PyInstaller", handle.read(), name)
         self.assertNotIn("PyInstaller", text)
 
-    def test_pyw_launcher_analyzes_a_log(self):
-        script = os.path.join(REPO_ROOT, "MacBootsmith.pyw")
+    def test_entry_analyzes_a_log(self):
+        script = os.path.join(REPO_ROOT, "MacBootsmith.py")
         sample = os.path.join(FIXTURES, "boot_logs", "ci-serial-sample.txt")
         env = dict(os.environ, PYTHONIOENCODING="utf-8")
         result = subprocess.run([sys.executable, script, "--analyze-log", sample], capture_output=True, text=True, encoding="utf-8", env=env, timeout=120)
@@ -212,8 +215,43 @@ class LauncherFilesTest(unittest.TestCase):
 
     def test_spec_bundles_the_read_only_data(self):
         text = self.read(os.path.join("packaging", "macbootsmith.spec"))
-        for needle in ("MacBootsmith.pyw", "OpCore-Simplify.py", "usb_enum.cs", "background_picker.icns", "docs", "console=False", 'name="MacBootsmith"', "COLLECT("):
+        self.assertNotIn("OpCore", text)
+        self.assertNotIn("updater", text)
+        self.assertIn('[os.path.join(ROOT, "MacBootsmith.py")]', text)
+        for needle in ('data("MacBootsmith.py", ".")', "usb_enum.cs", "background_picker.icns", "docs", "console=False", 'name="MacBootsmith"', "COLLECT("):
             self.assertIn(needle, text)
+
+
+class EntryPointTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        spec = importlib.util.spec_from_file_location("macbootsmith_entry_test", os.path.join(REPO_ROOT, "MacBootsmith.py"))
+        cls.module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cls.module)
+
+    def route(self, argv):
+        with mock.patch.object(self.module, "run_terminal", return_value="menu"):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                return self.module.main(argv), output.getvalue()
+
+    def test_terminal_and_dry_run_flags_open_the_menu(self):
+        self.assertEqual(self.route(["--terminal"])[0], "menu")
+        self.assertEqual(self.route(["--dry-run-usb"])[0], "menu")
+
+    def test_missing_tkinter_falls_back_to_the_menu(self):
+        with mock.patch.dict(sys.modules, {"tkinter": None}):
+            result, output = self.route([])
+        self.assertEqual(result, "menu")
+        self.assertIn("tkinter is not available", output)
+
+    def test_terminal_menu_exits_when_stdin_closes(self):
+        env = dict(os.environ, PYTHONIOENCODING="utf-8")
+        result = subprocess.run([sys.executable, os.path.join(REPO_ROOT, "MacBootsmith.py"), "--terminal"], stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, encoding="utf-8", env=env, timeout=120)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn(" MacBootsmith ", result.stdout)
+        self.assertIn("Q. Quit", result.stdout)
+        self.assertNotIn("OpCore", result.stdout)
 
 
 if __name__ == "__main__":

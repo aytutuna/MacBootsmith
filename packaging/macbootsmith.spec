@@ -16,7 +16,7 @@ def data(relative, target):
 
 
 datas = [
-    data("OpCore-Simplify.py", "."),
+    data("MacBootsmith.py", "."),
     data("Scripts/usb_enum.cs", "Scripts"),
     data("Scripts/sniffer/datasets/pci.ids", "Scripts/sniffer/datasets"),
     data("Scripts/sniffer/datasets/usb.ids", "Scripts/sniffer/datasets"),
@@ -29,13 +29,13 @@ datas += [(path, "docs/reference") for path in sorted(glob.glob(os.path.join(ROO
 datas += [(path, "postinstall/macpatch") for path in sorted(glob.glob(os.path.join(ROOT, "postinstall", "macpatch", "*"))) if os.path.isfile(path)]
 
 # collect_submodules skips folders without __init__.py, so the scanner is listed by hand
-hiddenimports = ["updater"] + collect_submodules("Scripts") + ["Scripts.sniffer." + name for name in (
+hiddenimports = collect_submodules("Scripts") + ["Scripts.sniffer." + name for name in (
     "hardware_sniffer", "wmi", "cpuid", "cpu_identifier", "gpu_identifier", "device_locator", "platforms.windows",
     "datasets.cpu_data", "datasets.gpu_data", "datasets.chipset_data", "datasets.pci_data",
 )]
 
 a = Analysis(
-    [os.path.join(ROOT, "MacBootsmith.pyw")],
+    [os.path.join(ROOT, "MacBootsmith.py")],
     pathex=[ROOT],
     binaries=[],
     datas=datas,

@@ -164,7 +164,6 @@ OCK_Files
 # Runtime output
 Results/
 SysReport/
-sha_version.txt
 # Downloaded tool binaries
 /acpidump.exe
 Scripts/*.exe

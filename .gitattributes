@@ -3,3 +3,6 @@
 
 # bash launchers run on macOS
 *.command text eol=lf
+
+# cmd misreads labels in LF-only batch files
+*.bat text eol=crlf

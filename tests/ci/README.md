@@ -6,13 +6,16 @@ Workflow: `.github/workflows/ci.yml`. Triggers: push, pull request, manual dispa
 
 - **test** (windows-latest): `python -m unittest discover -s tests -v`.
 - **build** (windows-latest, needs test): matrix over the two fixtures. Runs
-  `python OpCore-Simplify.py --headless tests/fixtures/answers-<name>.json`.
+  `python MacBootsmith.py --headless tests/fixtures/answers-<name>.json`.
   Exit codes: 0 = built and ocvalidate passed, 2 = built but ocvalidate reported errors or could not run
   (passes with a warning annotation), 3 = hardware incompatible. The laptop fixture is real hardware with no
   GPU macOS supports, so for it exit 3 is accepted (warning); the desktop fixture accepts 0 and 2 only.
   Any other code fails the job. After exit 0 or 2 the job also runs ocvalidate explicitly on
   `Results/EFI/OC/config.plist` and uploads `Results/EFI` as artifact `efi-<fixture>`.
   `OCK_Files` is cached, keyed on the workflow file hash and the ISO week.
+- **package** (windows-latest, needs test): builds the windowed exe from `MacBootsmith.py` with
+  `packaging/macbootsmith.spec`, uploads it, then runs it headless and with `--self-test`; output goes to
+  `MacBootsmith.log` because the exe has no console. See `packaging/README.md`.
 - **boot** (ubuntu-latest, needs build): matrix over fixtures that produce an EFI (currently desktop).
   Downloads the artifact, installs `qemu-system-x86 ovmf mtools dosfstools`, runs `tests/boot/run_qemu.sh`.
 - **recovery-download** (windows-latest, schedule and manual dispatch only, never on pull requests):
@@ -35,7 +38,7 @@ The markers are a first guess. Tighten them after the first green CI run.
 Run locally on Linux:
 
     sudo apt-get install qemu-system-x86 ovmf mtools dosfstools
-    python OpCore-Simplify.py --headless tests/fixtures/answers-desktop.json   # on any OS, produces Results/EFI
+    python MacBootsmith.py --headless tests/fixtures/answers-desktop.json   # on any OS, produces Results/EFI
     bash tests/boot/run_qemu.sh Results/EFI
 
 `SERIAL_LOG` and `BOOT_TIMEOUT` environment variables override the log path and the time limit.
