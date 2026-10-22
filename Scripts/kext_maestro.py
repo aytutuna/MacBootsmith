@@ -163,6 +163,9 @@ class KextMaestro:
         print("1. \033[1mRoot patches via OpenCore Legacy Patcher\033[0m (full support, needs lowered SIP, redo after updates)")
         print("2. \033[1mAppleBCMWLANCompanion\033[0m (no root patches, requires VT-d enabled in BIOS, not available on AMD, still marked unstable upstream)")
         print("")
+        print("Pick 1 if you already accepted root patches for the GPU or audio. Pick 2 on an Intel system with VT-d enabled when you want to keep SIP")
+        print("and update normally, and fall back to 1 if Wi-Fi does not appear.")
+        print("")
         recommended_option = 1
         kext_option = self.utils.request_input("Select Broadcom Wi-Fi option (default: {}): ".format(recommended_option)).strip() or str(recommended_option)
         if not kext_option in ("1", "2"):
@@ -252,8 +255,14 @@ class KextMaestro:
                 print("1. \033[1mAppleALC + OCLP\033[0m - Restores AppleHDA with a system root patch")
                 print("2. \033[1mAppleALC + SimpleHDA\033[0m - OpenCore injection without audio root patches")
                 print("")
+                print("Which to pick: SimpleHDA keeps SIP intact and survives macOS updates, so it is the default when nothing else in this build needs")
+                print("OpenCore Legacy Patcher root patches. AppleHDA (option 1) gives the most complete jack and input support; pick it when root")
+                print("patches are needed anyway (GPU or Broadcom Wi-Fi), since the audio patch then costs nothing extra. SimpleHDA is the younger")
+                print("project and some codecs lose a jack or the internal mic with it.")
+                print("")
+                recommended_option = 1 if needs_oclp else 2
                 while True:
-                    kext_option = self.utils.request_input("Select audio kext for your system: ").strip()
+                    kext_option = self.utils.request_input("Select audio kext for your system (default: {}): ".format(recommended_option)).strip() or str(recommended_option)
                     if kext_option == "1":
                         needs_oclp = kext_needs_oclp = True
                         selected_kexts.append("AppleALC")
@@ -308,6 +317,10 @@ class KextMaestro:
                     print("")
                     print("1. \033[1mNootRX\033[0m - Uses latest GPU firmware")
                     print("2. \033[1mWhateverGreen\033[0m - Uses original Apple firmware")
+                    print("")
+                    print("WhateverGreen is the default because it uses the firmware macOS ships and is what most guides assume. NootRX loads newer GPU")
+                    print("firmware and can fix black screens or missing outputs on some RX 6600/6800 cards, but cannot coexist with an Intel iGPU.")
+                    print("Try the other one post-install if the display misbehaves.")
                     print("")
 
                     if any(other_gpu_props.get("Manufacturer") == "Intel" for other_gpu_props in hardware_report.get("GPU", {}).values()):
@@ -383,6 +396,8 @@ class KextMaestro:
                 print("   • Can connect to Hidden Networks")
                 print("")
                 recommended_option = 1 if native_fork_available or darwin_major < 23 else 2
+                print("Default is the option that gives the native Wi-Fi menu without root patches when one exists; itlwm is the fallback when AirportItlwm misbehaves.")
+                print("")
                 if "Beta" in os_data.get_macos_name_by_darwin(macos_version) and not native_fork_available:
                     print("For unsupported macOS Beta versions, only itlwm is supported.")
                     selected_name = "itlwm"

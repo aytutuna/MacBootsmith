@@ -246,6 +246,9 @@ class HardwareCustomizer:
                             print("   OCLP Compatibility: {}".format(self.compatibility_checker.show_macos_compatibility((oclp_compatibility[0], os_data.get_lowest_darwin_version()))))
                 print("")
             
+            print("Devices left out of the chosen combination are disabled for macOS (hidden via ACPI/device properties); Windows is unaffected.")
+            print("Pick the combination with the newest macOS range. For a laptop with an NVIDIA dGPU that means the Intel iGPU alone.")
+            print("")
             while True:
                 choice = self.utils.request_input(f"Select a {device_type} combination (1-{len(valid_combinations)}): ")
                 
@@ -278,6 +281,8 @@ class HardwareCustomizer:
                         print("   OCLP Compatibility: {}".format(self.compatibility_checker.show_macos_compatibility((oclp_compatibility[0], os_data.get_lowest_darwin_version()))))
                 print()
             
+            print("Devices you do not pick are disabled for macOS (hidden via ACPI/device properties); Windows is unaffected.")
+            print("")
             while True:
                 choice = self.utils.request_input(f"Select a {device_type} device (1-{len(devices)}): ")
                 

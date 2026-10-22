@@ -109,7 +109,7 @@ The CI workflow (`.github/workflows/ci.yml`) has five jobs:
 - package: builds the Windows app with PyInstaller (`packaging/macbootsmith.spec`), runs a headless desktop build and the window self-test with the packaged app, and uploads it as the MacBootsmith-windows artifact. See `packaging/README.md`.
 - recovery-download: downloads and verifies a macOS 26 recovery image.
 
-Design notes live in `docs/reference/` (BIOS settings, install flow, post-install, OCLP, Tahoe, gaps, external links).
+Design notes live in `docs/reference/` (BIOS settings, install flow, post-install, OCLP, Tahoe, prompt choices, gaps, external links).
 
 Contributions are welcome. The rule that matters: nothing from Apple is ever committed to this repository, whether binaries, images or logos.
 

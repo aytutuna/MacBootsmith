@@ -211,6 +211,8 @@ class OCPE:
             print("\033[1;93mNote:\033[0m")
             print("- To select a major version, enter the number (e.g., 19).")
             print("- To specify a full version, use the Darwin version format (e.g., 22.4.6).")
+            print("- Press Enter to accept the suggested version.")
+            print("- Versions marked Requires OpenCore Legacy Patcher install fine but need root patches inside macOS for full graphics or Wi-Fi; prefer an unmarked version for a first install.")
             print("")
             print("Q. Quit")
             print("")

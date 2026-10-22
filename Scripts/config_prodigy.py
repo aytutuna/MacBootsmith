@@ -308,6 +308,8 @@ class ConfigProdigy:
             contents.append("\033[1;93mNote:\033[0m")
             contents.append("- The default layout may not be optimal.")
             contents.append("- Test different layouts to find what works best for your system.")
+            contents.append("- The ID tells AppleALC which pin configuration to use for this codec. Each entry was contributed for a specific board, and the green default comes from a well known author.")
+            contents.append("- If sound is missing or a jack does not work after install, change only DeviceProperties -> PciRoot(...)/Pci(...) -> layout-id (or alcid= in boot-args) and reboot. No rebuild is needed.")
             contents.append("")
             content = "\n".join(contents)
 
