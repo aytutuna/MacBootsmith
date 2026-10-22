@@ -1,0 +1,21 @@
+{
+    "version": 1,
+    "created": "2026-10-21 12:00",
+    "macos_version": "25.0.0",
+    "macos_name": "macOS Tahoe 26",
+    "smbios_model": "iMac20,1",
+    "sip": "030A0000",
+    "secure_boot_model": "Disabled",
+    "boot_args": "-v keepsyms=1 debug=0x100 revpatch=sbvmm -amfipassbeta",
+    "root_patches": [
+        {"set": "modern_audio"},
+        {"set": "modern_wireless", "device": "14E4-43A0", "name": "Broadcom BCM4360 802.11ac Wireless Network Adapter"},
+        {"set": "graphics", "codename": "Kepler", "device": "10DE-1180", "name": "NVIDIA GeForce GTX 680", "supported": false}
+    ],
+    "payload": {
+        "psp_version": "2.0.3",
+        "url": "https://github.com/dortania/PatcherSupportPkg/releases/download/2.0.3/Universal-Binaries.dmg",
+        "sha256": "cf2a80deafe153ed4a9aa32c63463032e02718f32713e9b3f0a6e09f9a6ffbab",
+        "size": 790749184
+    }
+}

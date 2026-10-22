@@ -133,7 +133,8 @@ jobs:
               exit 1
             fi
           done
-          if [ -d "$kit/Tools" ]; then
+          # MacPatch is copied from the repository, everything else in Tools would be a download
+          if [ -d "$kit/Tools" ] && [ -n "$(ls "$kit/Tools" | grep -v '^MacPatch$')" ]; then
             echo "::error::docs-only kit must not download tools"
             exit 1
           fi
@@ -205,6 +206,67 @@ jobs:
             if ($LASTEXITCODE -eq 0) { exit 0 }
           }
           Write-Error "packaged scan build exited with $($p.ExitCode)"; exit 1
+
+  macpatch:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # the system python is what users get from the Command Line Tools, so no setup-python here
+      - name: Unit tests with the system python
+        working-directory: tests
+        run: |
+          /usr/bin/python3 --version
+          /usr/bin/python3 -m unittest -v test_macpatch
+      - name: Dry run against the Tahoe fixture
+        run: |
+          sw_vers
+          csrutil status || true
+          set +e
+          /usr/bin/python3 -B postinstall/macpatch --manifest tests/fixtures/patches-tahoe.json --dry-run --log "$RUNNER_TEMP/macpatch.log" > "$RUNNER_TEMP/dry-run.txt" 2>&1
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/dry-run.txt"
+          echo "dry run exit code: $code (allowed: 2 3)"
+          if [ "$code" != "2" ] && [ "$code" != "3" ]; then
+            echo "::error::macpatch dry run exited with $code"
+            exit 1
+          fi
+          for text in "Patch sets in patches.json:" "(modern_audio)" "(modern_wireless)" "not covered by MacPatch"; do
+            if ! grep -qF "$text" "$RUNNER_TEMP/dry-run.txt"; then
+              echo "::error::dry run output lacks: $text"
+              exit 1
+            fi
+          done
+          if [ "$code" = "2" ] && ! grep -qF "Files (source inside Universal-Binaries.dmg" "$RUNNER_TEMP/dry-run.txt"; then
+            echo "::error::dry run failed preflight without listing the files"
+            exit 1
+          fi
+      - name: Dry run log
+        if: success() || failure()
+        run: cat "$RUNNER_TEMP/macpatch.log" || true
+      # the payload check downloads 754 MB on expensive macOS minutes, so it runs only when MacPatch changed
+      - name: Did MacPatch change
+        id: changes
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          run=false
+          if [ "$EVENT" = "workflow_dispatch" ] || [ "$EVENT" = "schedule" ]; then
+            run=true
+          elif [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            run=true
+          elif git diff --name-only "$BASE" HEAD | grep -qE '^(postinstall/|tests/ci/check_payload\.py$)'; then
+            run=true
+          fi
+          echo "payload=$run" >> "$GITHUB_OUTPUT"
+          echo "payload check: $run"
+      - name: Check payload contents
+        if: steps.changes.outputs.payload == 'true'
+        run: /usr/bin/python3 -B tests/ci/check_payload.py --dest "$RUNNER_TEMP/psp"
 
   boot:
     needs: build
