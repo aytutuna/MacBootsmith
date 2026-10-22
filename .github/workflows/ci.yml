@@ -230,6 +230,7 @@ jobs:
           set -e
           cat "$RUNNER_TEMP/dry-run.txt"
           echo "dry run exit code: $code (allowed: 2 3)"
+          echo "::notice::macpatch dry run exit $code on macOS $(sw_vers -productVersion), $(/usr/bin/python3 --version 2>&1)"
           if [ "$code" != "2" ] && [ "$code" != "3" ]; then
             echo "::error::macpatch dry run exited with $code"
             exit 1

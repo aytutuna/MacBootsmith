@@ -70,6 +70,8 @@ def main():
         results = [check_case(root, *case) for case in CASES]
     finally:
         subprocess.run(["/usr/bin/hdiutil", "detach", root, "-force"])
+    # job logs need a login, annotations do not
+    print("::{}::payload {}: {} of {} builds ok".format("notice" if all(results) else "error", payload.PIN["psp_version"], sum(results), len(results)))
     return 0 if all(results) else 1
 
 
