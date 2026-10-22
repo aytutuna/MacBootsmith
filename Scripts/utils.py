@@ -151,8 +151,9 @@ class Utils:
         cls.decisions = [item for item in cls.decisions if item[2] != prompt] + [(key, answer, prompt)]
 
     @classmethod
-    def decision_lines(cls):
-        return [explain.decision_line(key, answer, prompt) for key, answer, prompt in cls.decisions]
+    def decision_lines(cls, reasons=None):
+        reasons = reasons or {}
+        return [explain.decision_line(key, answer, prompt, reasons.get(key)) for key, answer, prompt in cls.decisions]
 
     @classmethod
     def stage_notes(cls, step):

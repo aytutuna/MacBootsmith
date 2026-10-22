@@ -6,6 +6,7 @@ from Scripts.datasets import os_data
 from Scripts.datasets import pci_data
 from Scripts.datasets import codec_layouts
 from Scripts.datasets import vendor_quirks
+from Scripts import codec_match
 from Scripts import gathering_files
 from Scripts import smbios
 from Scripts import utils
@@ -33,6 +34,7 @@ class ConfigProdigy:
         self.smbios = smbios.SMBIOS()
         self.utils = utils.Utils()
         self.bios_notes = []
+        self.layout_reason = None
         self.cpuids = {
             "Ivy Bridge": "A9060300",
             "Haswell": "C3060300",
@@ -264,11 +266,13 @@ class ConfigProdigy:
             pass
 
         codec_id = None
+        subsystem_id = None
         audio_controller_properties = None
 
         for codec_properties in hardware_report.get("Sound", {}).values():
             if codec_properties.get("Device ID") in codec_layouts.data:
                 codec_id = codec_properties.get("Device ID")
+                subsystem_id = codec_properties.get("Subsystem ID")
 
                 if codec_properties.get("Controller Device ID"):
                     for device_name, device_properties in hardware_report.get("System Devices").items():
@@ -285,10 +289,10 @@ class ConfigProdigy:
         
         available_layouts = codec_layouts.data.get(codec_id)
 
-        recommended_authors = ("Mirone", "InsanelyDeepak", "Toleda", "DalianSky")
-        recommended_layouts = [layout for layout in available_layouts if self.utils.contains_any(recommended_authors, layout.comment)]
-
-        default_layout = (recommended_layouts or available_layouts)[0]
+        motherboard = hardware_report.get("Motherboard") or {}
+        ranked = codec_match.rank_layouts(available_layouts, motherboard.get("Name"), subsystem_id, motherboard.get("Platform"))
+        reasons = {layout.id: reason for layout, _, reason in ranked}
+        default_layout = ranked[0][0]
 
         while True:
             contents = []
@@ -303,6 +307,8 @@ class ConfigProdigy:
                     contents.append("\033[1;32m{}\033[0m".format(line))
                 else:
                     contents.append(line)
+            contents.append("")
+            contents.append("Default layout {}: {}".format(default_layout.id, reasons[default_layout.id]))
             contents.append("")
             contents.append("\033[1;93mNote:\033[0m")
             contents.append("- The default layout may not be optimal.")
@@ -320,6 +326,7 @@ class ConfigProdigy:
 
                 for layout in available_layouts:
                     if layout.id == selected_layout_id:
+                        self.layout_reason = reasons[layout.id] or None
                         return selected_layout_id, audio_controller_properties
             except:
                 continue
