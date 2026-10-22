@@ -444,6 +444,7 @@ class PostInstallKit:
                 lines.append("4. Download and install OCLP-Mod.")
             lines.extend([
                 "5. Open OCLP-Mod, choose Post-Install Root Patch, start root patching and reboot when it finishes. Do not use its Build and Install OpenCore: this EFI was built for this PC.",
+                "   OCLP-Mod was archived by its author in June 2026. Release 3.1.9 still works, but its download servers (SimpleHacAPI) are being shut down, so turn SimpleHacAPI off in OCLP-Mod settings first. If patching fails, the mainline OpenCore Legacy Patcher from dortania.github.io patches the same drivers; it has not been tested with this build.",
                 "6. Run the root patches again after every macOS update. Updates remove them, and with a patched system volume macOS downloads full installers instead of small updates.",
                 "7. SIP (csr-active-config {}) and SecureBootModel ({}) are already set by this build. Leave them as they are and do not change SIP from recoveryOS.".format(summary.get("sip") or "as built", summary.get("secure_boot_model") or "as built")
             ])

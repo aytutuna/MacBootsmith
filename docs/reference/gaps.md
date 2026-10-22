@@ -67,6 +67,8 @@ Ranking is by effect on a first successful boot, then on post-install success. P
 - Pipeline: verdict, EFI build.
 - Idea: add a Tahoe warnings block to the verdict screen and add `-ibtcompatbeta` when an Intel Bluetooth device is present and the target is macOS 26.
 
+- Open: the OCLP fork used for Tahoe root patches (laobamac/OCLP-Mod) was archived 2026-06-13; the kit now says so and names mainline OCLP as the untested fallback. Re-evaluate once upstream OpCore-Simplify picks a replacement. See oclp.md.
+
 ### 9. Vendor and chipset quirks from the guide not applied (implemented)
 
 - Guide says: Surface needs `UEFI -> Quirks -> DisableSecurityPolicy`; B550/A520 need `SSDT-CPUR.aml` (not on X570 or older, else `cckprng_int_gen` panic); Insyde laptops use `LauncherOption` `Short`; ThinkPad NVRAM reset can brick (update BIOS instead); Gigabyte/ASRock AMD may need `npci` instead of Above 4G; 3990X needs hyper-threading off (64-thread limit); `ExitBootServicesDelay` for FileVault on Aptio IV.

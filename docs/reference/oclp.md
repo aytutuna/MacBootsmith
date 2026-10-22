@@ -126,3 +126,7 @@ The OCLP docs in `_ref/oclp/docs` contain no mention of the lzhoang2801 fork, of
 The app (`OpCore-Simplify.py show_oclp_warning`, `kext_maestro.py`) already says on Tahoe that OCLP "rolls back AppleHDA" and selects `AirPortBrcmNIC-Tahoe`, `-amfipassbeta` and similar; those behaviours belong to the fork and have no counterpart in the official OCLP docs. Differences between official OCLP and the fork are therefore not documented in the listed sources.
 
 Sources: absence checked with a repository-wide search of `_ref/oclp/docs` for "lzhoang", "Tahoe", "hackintosh", "fork"; `_ref/dortania-install-guide/extras/tahoe.md`; `_ref/hackintosh-com/index.html`.
+
+### Status of the fork (checked 2026-10-21)
+
+The fork the kit points to, laobamac/OCLP-Mod, was archived on 2026-06-13. Its README says existing releases keep working but the project's own download servers (SimpleHacAPI) are being shut down, and asks users to disable SimpleHacAPI in the settings. Release 3.1.9 (2026-04-15) is the last one and is what `postinstall_tools.py` pins. Mainline dortania/OpenCore-Legacy-Patcher was last pushed 2026-10-11 and is the fallback; whether its Tahoe root patches behave the same on a hackintosh built by this app is untested. Upstream OpCore-Simplify (2026-10-15) still refers to the fork, so watch what it switches to.
