@@ -1,16 +1,15 @@
 from Scripts import app_paths
 from Scripts import gathering_files
-from Scripts import run
 from Scripts import utils
 import os
 import platform
+import subprocess
 
 os_name = platform.system()
 
 class ConfigValidator:
     def __init__(self):
         self.g = None
-        self.run = run.Run().run
         self.utils = utils.Utils()
         self.script_dir = app_paths.tools_dir()
 
@@ -67,12 +66,14 @@ class ConfigValidator:
     def validate(self, config_path):
         ocvalidate = self.check_ocvalidate()
 
-        output = self.run({
-            "args": [ocvalidate, config_path]
-        })
+        try:
+            proc = subprocess.run([ocvalidate, config_path], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+        except OSError as e:
+            # 4551: Smart App Control, 1260: AppLocker / software restriction policy
+            if getattr(e, "winerror", None) in (1260, 4551):
+                return None, ("Windows blocked {} (Smart App Control or an application control policy), so config.plist was not checked.\n"
+                              "Smart App Control cannot be set to allow one file; it can only be turned off under Windows Security > App & browser control,\n"
+                              "and once off it stays off. Alternatively run the same check on the CI build or on another PC.").format(os.path.basename(ocvalidate))
+            return None, "ocvalidate could not be run: {}".format(e)
 
-        if not output or output[1] == "Command not found!" or not os.path.exists(ocvalidate):
-            return None, "ocvalidate could not be run"
-
-        text = (output[0] or "") + (output[1] or "")
-        return output[2] == 0, text.strip()
+        return proc.returncode == 0, proc.stdout.strip()
