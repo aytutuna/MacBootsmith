@@ -14,6 +14,7 @@ STEP_STAGES = {
     "Hardware scan": ("scan", "verdict"),
     "Gathering PnP devices": ("scan",),
     "Configuration": ("macos", "smbios"),
+    "USB map": ("usb_map",),
     "EFI build": ("kexts", "validate"),
     "Applying ACPI patches": ("acpi",),
     "Generating config.plist": ("config",),
@@ -73,8 +74,10 @@ def choice(key, answer, prompt=""):
     return (value, value or "[Enter]", "")
 
 
-def decision_line(key, answer, prompt=""):
+def decision_line(key, answer, prompt="", reason=None):
     value, label, when = choice(key, answer, prompt)
+    if reason:
+        when = reason[0].upper() + reason[1:] + "."
     # named answers such as a kext name go in front, so the line says what was picked
     if when and not value.isdigit() and value.lower() not in ("enter", "yes", "no") and value.lower() not in label.lower():
         label = "{}, {}".format(value, label)

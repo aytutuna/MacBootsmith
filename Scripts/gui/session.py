@@ -16,10 +16,11 @@ MAIN_MODULE_NAME = "macbootsmith_main"
 MAIN_SCRIPT = "MacBootsmith.py"
 VERDICT_SECTIONS = ("CPU", "GPU", "Sound", "Biometric", "Network", "Storage Controllers", "Bluetooth", "SD Controller")
 EXPRESS_TITLE = "Build everything"
-EXPRESS_STEPS = ("Windows preflight", "Hardware scan", "Configuration", "EFI build", "macOS recovery", "Post-install kit")
+EXPRESS_STEPS = ("Windows preflight", "Hardware scan", "Configuration", "USB map", "EFI build", "macOS recovery", "Post-install kit")
 # audio stays unset so the prompt's own default applies; whatevergreen only matters when its prompt appears
 EXPRESS_OPTIONS = {"audio": None, "broadcom": "1", "whatevergreen": "yes", "debug": False}
 USB_MAP_NOTE = "USB ports not mapped: run USB mapping and rebuild for best results."
+USB_DIRTY_NOTE = "USB page has an unsaved selection; save it or press Automatic map"
 
 
 class StageError(Exception):
@@ -79,6 +80,20 @@ def unsupported_devices(report):
     return names
 
 
+def usb_summary(path, report):
+    if not path:
+        return "none, UTBDefault.kext enables every port"
+    if not report or not report["possible"]:
+        return "saved map {}".format(path)
+    text = "automatic map, {} of {} ports on {} controller{}, confidence {}".format(
+        report["selected"], report["total"], report["mapped"], "" if report["mapped"] == 1 else "s", report["confidence"])
+    if report["confidence"] == "guess":
+        text += ": run USB mapping (menu 6 / USB page) if a port is dead or sleep fails"
+    if report.get("replaced"):
+        text += "; saved map not usable for this PC, replaced by the automatic map"
+    return text
+
+
 def summary_lines(summary):
     lines = [
         "macOS: {}".format(summary["macos_name"]),
@@ -88,6 +103,8 @@ def summary_lines(summary):
         "Recovery: {}".format(summary["recovery"] or "skipped"),
         "Post-install kit: {}".format(summary["kit"] or "not prepared")
     ]
+    if summary.get("usb"):
+        lines.insert(4, "USB: {}".format(summary["usb"]))
     if summary.get("decisions"):
         lines.append("Decided for you:")
         lines.extend("  - {}".format(line) for line in summary["decisions"])
@@ -108,7 +125,9 @@ class Session:
         self.preflight_error = None
         self.options = {"audio": None, "broadcom": "1", "whatevergreen": "yes", "debug": False}
         self.usb_history = None
+        self.usb_dirty = False
         self.usb_map_disabled = False
+        self.usb_auto = True
         self.build_result = None
         self.recovery_path = None
         self.kit_result = None
@@ -432,7 +451,8 @@ class Session:
 
     def express(self, report_path=None, acpi_dir=None, kit_mode="full", recovery=True):
         ocpe = self.ensure_ocpe()
-        steps = [step for step in EXPRESS_STEPS if (recovery or step != "macOS recovery") and (kit_mode or step != "Post-install kit")]
+        auto_usb = self.usb_auto and not self.usb_map_disabled
+        steps = [step for step in EXPRESS_STEPS if (recovery or step != "macOS recovery") and (kit_mode or step != "Post-install kit") and (auto_usb or step != "USB map")]
 
         def step(name):
             ocpe.u.progress_bar(EXPRESS_TITLE, steps, steps.index(name))
@@ -461,10 +481,19 @@ class Session:
             step("Configuration")
             self.configure(darwin, dict(EXPRESS_OPTIONS))
 
+            usb_report = None
+            if auto_usb:
+                step("USB map")
+                usb_report = self.express_usb_map()
+
             step("EFI build")
             result = self.build()
             warnings += result["preflight"]
+            if usb_report and usb_report.get("warning"):
+                warnings.append(usb_report["warning"])
             if not result["usb_map"]:
+                if usb_report and not usb_report["possible"] and not usb_report.get("warning"):
+                    warnings.append("Automatic USB map not possible: {}".format(usb_report["reason"]))
                 warnings.append(USB_MAP_NOTE)
 
             recovery_path = None
@@ -491,8 +520,9 @@ class Session:
             "recovery": recovery_path,
             "kit": kit.get("dest_dir") if kit else None,
             "usb_map": result["usb_map"],
+            "usb": usb_summary(result["usb_map"], usb_report),
             "bios": result["bios"],
-            "decisions": utils.Utils.decision_lines(),
+            "decisions": utils.Utils.decision_lines({"codec_layout": ocpe.co.layout_reason}),
             "warnings": list(dict.fromkeys(warnings))
         }
 
@@ -540,6 +570,34 @@ class Session:
         self.usb_history = history
         return history
 
+    def auto_usb_map(self, controllers):
+        return usb_mapper.auto_select(self.merge_usb(controllers))[1]
+
+    def express_usb_map(self):
+        ocpe = self.ensure_ocpe()
+        if ocpe.usb_map_override:
+            return None
+        if self.usb_dirty:
+            return {"possible": False, "reason": USB_DIRTY_NOTE, "warning": USB_DIRTY_NOTE}
+        # a usable saved map, manual or automatic, wins over a new automatic one
+        if ocpe.select_usb_map_source(self.hardware_report, announce=False):
+            return None
+        replaced = os.path.isfile(ocpe.usb_mapper.map_path)
+        controllers = ocpe.usb_mapper.enumerate()
+        if controllers is None:
+            return {"possible": False, "reason": "the USB ports could not be listed."}
+        self.load_usb_history()
+        report = self.auto_usb_map(controllers)
+        if not report["possible"]:
+            return report
+        matched, _ = usb_mapper.report_matches(self.usb_history, self.hardware_report)
+        if not matched:
+            return dict(report, possible=False, reason="the USB controllers of this PC are not the ones in the hardware report.")
+        _, errors = self.save_usb_map()
+        if errors:
+            return dict(report, possible=False, reason=" ".join(errors))
+        return dict(report, replaced=replaced)
+
     def save_usb_map(self):
         mapper = usb_mapper
         history = self.usb_history or []
@@ -547,6 +605,7 @@ class Session:
         if errors:
             return None, errors
         path = self.ensure_ocpe().usb_mapper.save(history)
+        self.usb_dirty = False
         self.set_usb_map_disabled(False)
         return path, []
 

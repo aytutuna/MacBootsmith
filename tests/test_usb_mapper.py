@@ -217,6 +217,191 @@ class PortLimitTest(unittest.TestCase):
         self.assertEqual(controllers[0]["ports"][0]["type"], 3)
 
 
+HUB = usb_mapper.normalize_hub_name(HUB_A)
+
+
+def auto_port(index, cls, connectable=True, type_c=False, companion=0, seen=(), devices=()):
+    return {"index": index, "name": "Port {}".format(index), "class": cls, "status": "NoDeviceConnected", "type_c": type_c,
+            "user_connectable": connectable, "companion": {"hub": HUB if companion else "", "port": companion}, "guessed": None,
+            "devices": [{"name": name, "speed": "USB 2.0", "children": []} for name in devices], "seen": list(seen),
+            "selected": None, "type": None, "comment": ""}
+
+
+def auto_controllers(*port_lists):
+    controllers = []
+    for number, ports in enumerate(port_lists):
+        controllers.append({"name": "XHCI {}".format(number), "class": "XHCI", "hub_name": HUB if number == 0 else "hub{}".format(number),
+                            "identifiers": {"acpi_path": "\\_SB.PC00.XHC{}".format(number)}, "port_count": len(ports), "ports": ports})
+    return usb_mapper.guess_ports(controllers)
+
+
+def by_index(controller):
+    return {port["index"]: port for port in controller["ports"]}
+
+
+class AutoSelectTest(unittest.TestCase):
+    def test_selects_external_and_used_ports(self):
+        controllers = auto_controllers([
+            auto_port(1, "HighSpeed"),
+            auto_port(2, "HighSpeed", connectable=False),
+            auto_port(3, "HighSpeed", connectable=False, devices=["Bluetooth"]),
+            auto_port(4, "HighSpeed", connectable=False, seen=["Webcam"]),
+        ])
+        controllers, report = usb_mapper.auto_select(controllers)
+        ports = by_index(controllers[0])
+        self.assertEqual([index for index, port in ports.items() if port["selected"]], [1, 3, 4])
+        self.assertEqual(usb_mapper.connector_type(ports[1]), usb_mapper.TYPE_USB2_A)
+        self.assertEqual(usb_mapper.connector_type(ports[4]), usb_mapper.TYPE_INTERNAL)
+        self.assertTrue(report["possible"])
+        self.assertEqual((report["selected"], report["total"], report["mapped"]), (3, 4, 1))
+        info = report["controllers"][0]
+        self.assertTrue(info["firmware_marks"])
+        self.assertIn("internal ports in use: 3, 4", info["reasons"])
+        self.assertEqual(report["confidence"], "good")
+        self.assertEqual(usb_mapper.validate_selection(controllers), [])
+        self.assertTrue(usb_mapper.build_info_plist({"controllers": controllers})["IOKitPersonalities"])
+
+    def test_companion_follows_its_selected_half(self):
+        controllers = auto_controllers([
+            auto_port(1, "HighSpeed", companion=5),
+            auto_port(5, "SuperSpeed", connectable=False, companion=1),
+            auto_port(6, "SuperSpeed", connectable=False),
+        ])
+        controllers, report = usb_mapper.auto_select(controllers)
+        ports = by_index(controllers[0])
+        self.assertTrue(ports[1]["selected"] and ports[5]["selected"])
+        self.assertFalse(ports[6]["selected"])
+        self.assertEqual(usb_mapper.connector_type(ports[1]), usb_mapper.TYPE_USB3_A)
+        self.assertEqual(usb_mapper.connector_type(ports[5]), usb_mapper.TYPE_USB3_A)
+        self.assertIn("added as the USB 2/USB 3 half of a selected port: 5", report["controllers"][0]["reasons"])
+
+    def test_type_c_comes_from_the_firmware(self):
+        controllers = auto_controllers([
+            auto_port(2, "HighSpeed", type_c=True, companion=6),
+            auto_port(3, "HighSpeed", type_c=True),
+            auto_port(6, "SuperSpeed", type_c=True, companion=2),
+        ])
+        ports = by_index(usb_mapper.auto_select(controllers)[0][0])
+        self.assertEqual(usb_mapper.connector_type(ports[2]), usb_mapper.TYPE_C_WITH_SWITCH)
+        self.assertEqual(usb_mapper.connector_type(ports[6]), usb_mapper.TYPE_C_WITH_SWITCH)
+        self.assertEqual(usb_mapper.connector_type(ports[3]), usb_mapper.TYPE_C_USB2_ONLY)
+        self.assertTrue(all(port["type"] is None for port in ports.values()))
+
+    def cross_controllers(self, with_thunderbolt):
+        pch = auto_port(1, "HighSpeed", type_c=True)
+        pch["companion"] = {"hub": "tbhub", "port": 2}
+        tb = auto_port(2, "SuperSpeed", type_c=True)
+        tb["companion"] = {"hub": HUB, "port": 1}
+        controllers = [{"name": "PCH", "class": "XHCI", "hub_name": HUB, "identifiers": {"acpi_path": "\\_SB.PC00.XHCI"}, "ports": [pch]}]
+        if with_thunderbolt:
+            controllers.append({"name": "TB", "class": "XHCI", "hub_name": "tbhub", "identifiers": {"acpi_path": "\\_SB.PC00.TXHC"}, "ports": [tb]})
+        return usb_mapper.auto_select(usb_mapper.guess_ports(controllers))
+
+    def test_type_c_paired_across_controllers(self):
+        controllers, report = self.cross_controllers(True)
+        self.assertEqual([usb_mapper.connector_type(controller["ports"][0]) for controller in controllers], [usb_mapper.TYPE_C_WITH_SWITCH] * 2)
+        self.assertEqual((report["selected"], report["mapped"]), (2, 2))
+        # without the Thunderbolt controller the USB 2 half still has a companion, so it is not a USB 2 only Type-C
+        controllers, report = self.cross_controllers(False)
+        self.assertEqual(usb_mapper.connector_type(controllers[0]["ports"][0]), usb_mapper.TYPE_C_WITH_SWITCH)
+        self.assertEqual(report["selected"], 1)
+
+    def test_trimming_drops_a_partner_on_another_controller(self):
+        pch = [auto_port(index, "HighSpeed", devices=["Stick"]) for index in range(1, 16)]
+        internal = auto_port(20, "HighSpeed", connectable=False)
+        internal["companion"] = {"hub": "tbhub", "port": 2}
+        tb = auto_port(2, "SuperSpeed")
+        tb["companion"] = {"hub": HUB, "port": 20}
+        controllers = [{"name": "PCH", "class": "XHCI", "hub_name": HUB, "identifiers": {"acpi_path": "\\_SB.PC00.XHCI"}, "ports": pch + [internal]},
+                       {"name": "TB", "class": "XHCI", "hub_name": "tbhub", "identifiers": {"acpi_path": "\\_SB.PC00.TXHC"},
+                        "ports": [tb, auto_port(3, "SuperSpeed", connectable=False)]}]
+        controllers, report = usb_mapper.auto_select(usb_mapper.guess_ports(controllers))
+        pch_info, tb_info = report["controllers"]
+        self.assertEqual(pch_info["selected"], 15)
+        self.assertIn("left out to stay within 15, never seen with a device: 20", pch_info["reasons"])
+        self.assertIn("their other halves left out as well: TB port 2", pch_info["reasons"])
+        self.assertEqual(tb_info["selected"], 0)
+        self.assertEqual(report["mapped"], 1)
+
+    def test_keeps_a_type_set_by_hand(self):
+        port = auto_port(2, "HighSpeed", type_c=True)
+        port["type"] = usb_mapper.TYPE_INTERNAL
+        controllers = usb_mapper.auto_select(auto_controllers([port]))[0]
+        self.assertEqual(controllers[0]["ports"][0]["type"], usb_mapper.TYPE_INTERNAL)
+
+    def test_trims_usb2_jacks_then_usb3_pairs_over_the_limit(self):
+        ports = [auto_port(index, "HighSpeed", devices=["Stick"]) for index in range(1, 5)]
+        ports += [auto_port(index, "HighSpeed", companion=index + 16) for index in range(5, 9)]
+        ports += [auto_port(index + 16, "SuperSpeed", companion=index) for index in range(5, 9)]
+        ports += [auto_port(9, "HighSpeed", type_c=True, companion=25), auto_port(25, "SuperSpeed", type_c=True, companion=9)]
+        ports += [auto_port(10, "HighSpeed"), auto_port(13, "HighSpeed")]
+        ports += [auto_port(11, "HighSpeed", connectable=False, companion=26), auto_port(26, "SuperSpeed", companion=11)]
+        controllers, report = usb_mapper.auto_select(auto_controllers(ports))
+        selected = by_index(controllers[0])
+        # USB 2 only jacks go first, then a USB 3 jack as a pair; the Type-C jack stays
+        self.assertEqual(sorted(index for index, port in selected.items() if not port["selected"]), [10, 11, 13, 26])
+        self.assertEqual(usb_mapper.selected_count(controllers[0]), 14)
+        self.assertTrue(selected[9]["selected"] and selected[25]["selected"])
+        self.assertTrue(report["possible"])
+        self.assertIn("left out to stay within 15, never seen with a device: 13, 10, 26, 11", report["controllers"][0]["reasons"])
+        self.assertEqual(usb_mapper.validate_selection(controllers), [])
+
+    def test_confidence_is_a_guess_when_every_port_looks_external(self):
+        controllers = auto_controllers([auto_port(index, "HighSpeed") for index in range(1, 5)])
+        controllers, report = usb_mapper.auto_select(controllers)
+        self.assertFalse(report["controllers"][0]["firmware_marks"])
+        self.assertEqual(report["confidence"], "guess")
+        self.assertIn("the firmware reports every port as an external jack", report["controllers"][0]["reasons"])
+        self.assertTrue(usb_mapper.report_lines(report)[-1].startswith("Confidence: guess."))
+
+        controllers = auto_controllers([auto_port(index, "HighSpeed", seen=["Stick"] if index <= 2 else ()) for index in range(1, 5)])
+        self.assertEqual(usb_mapper.auto_select(controllers)[1]["confidence"], "good")
+
+    def test_not_possible_when_used_ports_exceed_the_limit(self):
+        busy = [auto_port(index, "HighSpeed", seen=["Stick"]) for index in range(1, 17)]
+        controllers, report = usb_mapper.auto_select(auto_controllers(busy, [auto_port(1, "HighSpeed")]))
+        self.assertFalse(report["possible"])
+        self.assertTrue(report["controllers"][0]["needs_manual"])
+        self.assertFalse(report["controllers"][1]["needs_manual"])
+        self.assertIn("XHCI 0", report["reason"])
+        self.assertIn("UTBDefault", report["reason"])
+        self.assertTrue(usb_mapper.report_lines(report)[-1].startswith("Automatic map not possible:"))
+
+    def test_not_possible_without_ports(self):
+        controller = {"name": "Broken", "class": "XHCI", "identifiers": {}, "hub_name": "", "port_count": 0, "ports": [], "error": "access denied"}
+        report = usb_mapper.auto_select([controller])[1]
+        self.assertFalse(report["possible"])
+        self.assertEqual(report["reason"], "no USB ports were found.")
+        self.assertIn("could not read its ports: access denied", report["controllers"][0]["reasons"])
+
+    def test_unreadable_controller_makes_it_a_guess(self):
+        good = auto_controllers([auto_port(1, "HighSpeed"), auto_port(2, "HighSpeed", connectable=False)])[0]
+        broken = {"name": "Broken", "class": "XHCI", "identifiers": {}, "hub_name": "", "port_count": 0, "ports": [], "error": "access denied"}
+        report = usb_mapper.auto_select([good, broken])[1]
+        self.assertTrue(report["possible"])
+        self.assertEqual(report["confidence"], "guess")
+        lines = usb_mapper.report_lines(report)
+        self.assertIn("Broken could not be read, so its ports will be missing in macOS.", lines)
+        self.assertIn("On at least one controller", lines[-1])
+
+    def test_menu_saves_the_automatic_map(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mapper = usb_mapper.USBMapper(report_dir=temp_dir)
+            mapper._supported = lambda: True
+            mapper.enumerate = lambda: usb_mapper.parse_controllers(json.dumps(CANNED_DUMP))
+            answers = iter(["x", "s"])
+            mapper.utils.request_input = lambda prompt="": next(answers)
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                selection = mapper.auto_map()
+            # the ASMedia controller marks its only port external and has never seen a device
+            self.assertIn("Confidence: guess", output.getvalue())
+            self.assertIn("Type-C: 1, 5", output.getvalue())
+            self.assertIn("USB map saved to", output.getvalue())
+            saved = mapper.load_saved()
+            self.assertEqual(saved["controllers"], selection["controllers"])
+            self.assertEqual(usb_mapper.validate_selection(saved), [])
+
+
 class EnumerateTest(unittest.TestCase):
     def mapper_with_output(self, stdout, stderr="", code=0):
         mapper = usb_mapper.USBMapper()

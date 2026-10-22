@@ -123,6 +123,17 @@ class HeadlessRunTest(unittest.TestCase):
         self.assertEqual(exit_code, 3, output)
         self.assertIn("not compatible with macOS", output)
 
+    def test_auto_usb_map_needs_express(self):
+        exit_code, output = self.run_answers({
+            "report": "tests/fixtures/desktop/Report.json",
+            "macos_version": "25.0.0",
+            "usb_map": "auto",
+            "prompts": {},
+            "default": ""
+        })
+        self.assertEqual(exit_code, 1, output)
+        self.assertIn('usb_map "auto" needs "express": true.', output)
+
     def test_express_stops_at_the_verdict_on_unsupported_hardware(self):
         exit_code, output = self.run_answers({
             "express": True,
@@ -221,6 +232,7 @@ class ExpressMenuTest(unittest.TestCase):
         self.ocpe.u = utils.Utils()
         self.ocpe.result_dir = "Results"
         self.ocpe.usb_map_override = None
+        self.ocpe.usb_map_auto = False
         utils.Utils.set_headless({"prompts": {"Select an option": "a"}, "default": ""})
 
     def tearDown(self):
@@ -276,6 +288,15 @@ class ExpressMenuTest(unittest.TestCase):
         with mock.patch.object(session_module.Session, "express", autospec=True, side_effect=lambda express, *args: seen.append(express.usb_map_disabled)):
             self.ocpe.express()
         self.assertEqual(seen, [True, False])
+
+    def test_headless_auto_usb_map_reaches_express(self):
+        seen = []
+        record = lambda express, *args: seen.append((express.usb_auto, express.usb_map_disabled))
+        for answer in ("auto", None, False):
+            self.ocpe.apply_headless_usb_map(answer)
+            with mock.patch.object(session_module.Session, "express", autospec=True, side_effect=record):
+                self.ocpe.express()
+        self.assertEqual(seen, [(True, False), (False, False), (False, True)])
 
     def test_unexpected_errors_return_to_the_menu(self):
         with mock.patch.object(session_module.Session, "express", side_effect=OSError("disk full")):

@@ -22,7 +22,7 @@ APP_TITLE = "MacBootsmith"
 POLL_MS = 50
 STAGE_OUTPUT_LIMIT = 20000
 LOG_LINE_LIMIT = 5000
-EXPRESS_PAGES = dict(zip(EXPRESS_STEPS, ("Welcome", "Hardware", "Options", "Build", "Recovery", "Post-install")))
+EXPRESS_PAGES = dict(zip(EXPRESS_STEPS, ("Welcome", "Hardware", "Options", "USB mapping", "Build", "Recovery", "Post-install")))
 
 
 class PromptDialog(tk.Toplevel):

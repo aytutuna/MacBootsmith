@@ -3,11 +3,14 @@ import io
 import json
 import os
 import sys
+import tempfile
+import types
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from repo_path import FIXTURES
 
+from Scripts import usb_mapper
 from Scripts import utils
 from Scripts.gui import broker
 from Scripts.gui import session as session_module
@@ -177,11 +180,16 @@ class FakeChecker:
     hardware_report = None
 
 
+class FakeConfig:
+    layout_reason = None
+
+
 class FakeOcpe:
     def __init__(self):
         self.u = FakeUtils()
         self.k = FakeKexts()
         self.c = FakeChecker()
+        self.co = FakeConfig()
         self.result_dir = "Results"
 
 
@@ -201,6 +209,7 @@ class ExpressTest(unittest.TestCase):
         self.session = session_module.Session(ocpe_factory=lambda: self.ocpe, preset_hook=lambda mapping: None, defaults_hook=self.defaults.append)
         self.native = ("17.0.0", "25.99.99")
         self.usb_map = None
+        self.usb_report = None
         self.ocvalidate = "passed"
         self.configure_hook = lambda: None
         session = self.session
@@ -227,6 +236,10 @@ class ExpressTest(unittest.TestCase):
             self.calls.append("build")
             return {"ocvalidate": self.ocvalidate, "result_dir": "Results", "usb_map": self.usb_map, "bios": {"disable": [], "enable": [], "notes": []}, "preflight": ["bitlocker"]}
 
+        def express_usb_map():
+            self.calls.append("usb_map")
+            return self.usb_report
+
         def recovery(version):
             self.calls.append(("recovery", version))
             return "Results/com.apple.recovery.boot"
@@ -240,12 +253,13 @@ class ExpressTest(unittest.TestCase):
         session.scan_report = lambda: self.calls.append("scan_report") or load_report(None)
         session.configure = configure
         session.build = build
+        session.express_usb_map = express_usb_map
         session.recovery = recovery
         session.post_install_kit = post_install_kit
 
     def test_full_chain_order_and_summary(self):
         summary = self.session.express("report.json")
-        self.assertEqual(self.calls, ["preflight", "load_report", ("configure", 25, None), "build", ("recovery", "25.99.99"), ("kit", "full")])
+        self.assertEqual(self.calls, ["preflight", "load_report", ("configure", 25, None), "usb_map", "build", ("recovery", "25.99.99"), ("kit", "full")])
         self.assertEqual(self.ocpe.u.steps, list(session_module.EXPRESS_STEPS) + ["done"])
         self.assertEqual(self.defaults, [True, False])
         self.assertEqual(summary["macos_name"], "macOS Tahoe 26")
@@ -321,12 +335,42 @@ class ExpressTest(unittest.TestCase):
         self.assertEqual(self.calls[-1], "build")
         self.assertIsNone(summary["kit"])
         self.assertIn("Post-install kit: not prepared", session_module.summary_lines(summary))
-        self.assertEqual(self.ocpe.u.steps, ["Windows preflight", "Hardware scan", "Configuration", "EFI build", "done"])
+        self.assertEqual(self.ocpe.u.steps, ["Windows preflight", "Hardware scan", "Configuration", "USB map", "EFI build", "done"])
 
     def test_usb_map_note_only_without_a_map(self):
         self.usb_map = "SysReport/USBMap.json"
         summary = self.session.express("report.json")
         self.assertNotIn(session_module.USB_MAP_NOTE, summary["warnings"])
+
+    def test_automatic_usb_map_goes_into_the_summary(self):
+        self.usb_map = "SysReport/USBMap.json"
+        self.usb_report = {"possible": True, "confidence": "good", "selected": 11, "total": 14, "mapped": 1}
+        summary = self.session.express("report.json")
+        self.assertIn("USB: automatic map, 11 of 14 ports on 1 controller, confidence good", session_module.summary_lines(summary))
+        self.usb_report = dict(self.usb_report, confidence="guess", mapped=2)
+        summary = self.session.express("report.json")
+        self.assertEqual(summary["usb"], "automatic map, 11 of 14 ports on 2 controllers, confidence guess: "
+                                         "run USB mapping (menu 6 / USB page) if a port is dead or sleep fails")
+
+    def test_saved_map_and_no_map_in_the_summary(self):
+        self.usb_map = "SysReport/USBMap.json"
+        self.assertEqual(self.session.express("report.json")["usb"], "saved map SysReport/USBMap.json")
+        self.usb_map = None
+        self.usb_report = {"possible": False, "reason": "no USB ports were found."}
+        summary = self.session.express("report.json")
+        self.assertEqual(summary["usb"], "none, UTBDefault.kext enables every port")
+        self.assertEqual(summary["warnings"][-2:], ["Automatic USB map not possible: no USB ports were found.", session_module.USB_MAP_NOTE])
+
+    def test_unsaved_usb_page_warning(self):
+        self.usb_report = {"possible": False, "reason": session_module.USB_DIRTY_NOTE, "warning": session_module.USB_DIRTY_NOTE}
+        summary = self.session.express("report.json")
+        self.assertEqual(summary["warnings"][-2:], [session_module.USB_DIRTY_NOTE, session_module.USB_MAP_NOTE])
+
+    def test_usb_stage_left_out_when_mapping_is_off(self):
+        self.session.usb_map_disabled = True
+        self.session.express("report.json", kit_mode=None, recovery=False)
+        self.assertNotIn("usb_map", self.calls)
+        self.assertEqual(self.ocpe.u.steps, ["Windows preflight", "Hardware scan", "Configuration", "EFI build", "done"])
 
     def test_recovery_can_be_skipped(self):
         summary = self.session.express("report.json", kit_mode="docs-only", recovery=False)
@@ -387,6 +431,67 @@ class ExpressTest(unittest.TestCase):
         prompts.set_accept_defaults(True)
         self.assertEqual(prompts("Continue with OpenCore Legacy Patcher? (yes/No): ", ""), "yes")
         self.assertEqual(len(script.prompts), 1)
+
+
+class ExpressUsbMapTest(unittest.TestCase):
+    def setUp(self):
+        from test_usb_mapper import CANNED_DUMP
+        temp = tempfile.TemporaryDirectory()
+        self.addCleanup(temp.cleanup)
+        self.ocpe = FakeOcpe()
+        self.ocpe.usb_map_override = None
+        self.ocpe.usb_mapper = usb_mapper.USBMapper(report_dir=temp.name)
+        self.ocpe.usb_mapper.enumerate = lambda: usb_mapper.parse_controllers(json.dumps(CANNED_DUMP))
+        self.ocpe.select_usb_map_source = types.MethodType(session_module.load_main_module().OCPE.select_usb_map_source, self.ocpe)
+        self.session = session_module.Session(ocpe_factory=lambda: self.ocpe)
+        self.session.hardware_report = {"USB Controllers": {"Intel XHCI": {"Device ID": "8086-7F6E", "Subsystem ID": "3D6C17AA"}}}
+
+    def test_saves_the_automatic_map(self):
+        report = self.session.express_usb_map()
+        self.assertTrue(report["possible"])
+        self.assertFalse(report["replaced"])
+        self.assertEqual(report["selected"], 8)
+        saved = self.ocpe.usb_mapper.load_saved()
+        self.assertEqual(usb_mapper.validate_selection(saved), [])
+        self.assertEqual(sum(usb_mapper.selected_count(controller) for controller in saved["controllers"]), 8)
+
+    def test_a_usable_saved_map_wins(self):
+        self.session.express_usb_map()
+        self.ocpe.usb_mapper.enumerate = lambda: self.fail("should not enumerate")
+        self.assertIsNone(self.session.express_usb_map())
+
+    def test_an_unusable_saved_map_is_replaced(self):
+        self.ocpe.usb_mapper.save({"controllers": []})
+        report = self.session.express_usb_map()
+        self.assertTrue(report["replaced"])
+        self.assertIn("replaced by the automatic map", session_module.usb_summary(self.ocpe.usb_mapper.map_path, report))
+        self.assertEqual(usb_mapper.validate_selection(self.ocpe.usb_mapper.load_saved()), [])
+
+    def test_saving_clears_the_unsaved_flag(self):
+        self.session.load_usb_history()
+        self.session.auto_usb_map(self.ocpe.usb_mapper.enumerate())
+        self.session.usb_dirty = True
+        path, errors = self.session.save_usb_map()
+        self.assertEqual(errors, [])
+        self.assertFalse(self.session.usb_dirty)
+
+    def test_unsaved_ticks_on_the_usb_page_are_kept(self):
+        self.session.usb_dirty = True
+        self.ocpe.usb_mapper.enumerate = lambda: self.fail("should not enumerate")
+        report = self.session.express_usb_map()
+        self.assertEqual(report["warning"], session_module.USB_DIRTY_NOTE)
+        self.assertFalse(os.path.exists(self.ocpe.usb_mapper.map_path))
+
+    def test_other_machine_report_is_not_mapped(self):
+        self.session.hardware_report = {"USB Controllers": {"Other": {"Device ID": "1022-149C", "Subsystem ID": "14581234"}}}
+        report = self.session.express_usb_map()
+        self.assertFalse(report["possible"])
+        self.assertIn("not the ones in the hardware report", report["reason"])
+        self.assertFalse(os.path.exists(self.ocpe.usb_mapper.map_path))
+
+    def test_ports_that_cannot_be_listed(self):
+        self.ocpe.usb_mapper.enumerate = lambda: None
+        self.assertEqual(self.session.express_usb_map(), {"possible": False, "reason": "the USB ports could not be listed."})
 
 
 if __name__ == "__main__":

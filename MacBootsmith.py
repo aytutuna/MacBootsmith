@@ -48,6 +48,7 @@ class OCPE:
         self.pf = preflight.Preflight()
         self.usb_mapper = usb_mapper.USBMapper()
         self.usb_map_override = None
+        self.usb_map_auto = True
         self.usb_map_source = None
         self.bios_checklist = bios_checklist.BIOSChecklist()
         self.pk = postinstall_kit.PostInstallKit()
@@ -308,7 +309,18 @@ class OCPE:
             self.u.request_input("Press Enter to go back...")
             return None
 
-        selection = self.usb_mapper.discover()
+        print("1. Automatic map from firmware data (recommended first try)")
+        print("2. Map by plugging a device into each port")
+        print("")
+        print("Any other key to go back")
+        print("")
+        option = self.u.request_input("Select an option: ").strip()
+        if option == "1":
+            selection = self.usb_mapper.auto_map()
+        elif option == "2":
+            selection = self.usb_mapper.discover()
+        else:
+            return None
         if selection:
             matched, unmatched = usb_mapper.report_matches(selection, hardware_report)
             if not matched:
@@ -699,6 +711,9 @@ class OCPE:
                 print("    {}: {}".format(title, item))
 
     def apply_headless_usb_map(self, usb_map):
+        self.usb_map_auto = isinstance(usb_map, str) and usb_map.strip().lower() == "auto"
+        if self.usb_map_auto:
+            return
         if usb_map is False or (isinstance(usb_map, str) and usb_map.strip().lower() == "none"):
             self.usb_map_override = False
         elif isinstance(usb_map, str) and usb_map.strip():
@@ -709,6 +724,7 @@ class OCPE:
     def express(self, report_path=None, acpi_dir=None, kit_mode="full", recovery=True):
         express = session.Session(ocpe_factory=lambda: self)
         express.usb_map_disabled = self.usb_map_override is False
+        express.usb_auto = self.usb_map_auto
         try:
             return express, express.express(report_path, acpi_dir, kit_mode, recovery), None
         except session.StageError as e:
@@ -794,6 +810,8 @@ class OCPE:
         self.ac.dsdt = self.ac.acpi.acpi_tables = None
 
         self.apply_headless_usb_map(answers.get("usb_map"))
+        if self.usb_map_auto:
+            raise Exception('usb_map "auto" needs "express": true.')
 
         report = answers.get("report")
         acpi_path = answers.get("acpi")

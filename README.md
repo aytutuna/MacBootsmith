@@ -91,7 +91,7 @@ Headless mode builds an EFI without prompts, from a JSON answers file (used by C
 python MacBootsmith.py --headless <answers.json>
 ```
 
-Add `"debug": true` to the answers file for a DEBUG EFI (see `tests/fixtures/answers-desktop-debug.json`). `"express": true` runs the express chain instead (see `tests/fixtures/answers-express.json`); it reads `report`, `acpi`, `usb_map`, `skip_recovery` (default true) and `postinstall_kit` (false for no kit) like a normal run, and exits 3 only when nothing can be installed.
+Add `"debug": true` to the answers file for a DEBUG EFI (see `tests/fixtures/answers-desktop-debug.json`). `"express": true` runs the express chain instead (see `tests/fixtures/answers-express.json`); it reads `report`, `acpi`, `usb_map` (`"auto"` maps the ports of the PC it runs on before the build), `skip_recovery` (default true) and `postinstall_kit` (false for no kit) like a normal run, and exits 3 only when nothing can be installed.
 
 The boot log analyser also runs on its own; it exits 1 when no log is found:
 

@@ -54,6 +54,7 @@ PORT_TYPES = {
 }
 TYPE_USB2_A = 0
 TYPE_USB3_A = 3
+TYPE_C_USB2_ONLY = 8
 TYPE_C_WITH_SWITCH = 9
 TYPE_INTERNAL = 255
 
@@ -235,7 +236,7 @@ def parse_controller(raw):
     return controller
 
 
-def guess_ports(controllers):
+def companion_finder(controllers):
     hubs = {controller.get("hub_name"): controller for controller in controllers if controller.get("hub_name")}
 
     def companion_of(port):
@@ -247,6 +248,11 @@ def guess_ports(controllers):
             return None
         return next((other for other in hub["ports"] if other["index"] == companion["port"]), None)
 
+    return companion_of
+
+
+def guess_ports(controllers):
+    companion_of = companion_finder(controllers)
     for controller in controllers:
         for port in controller["ports"]:
             if port.get("status") not in USABLE_STATUS:
@@ -575,6 +581,167 @@ def preselect(controllers):
     return controllers
 
 
+def port_list(ports):
+    return ", ".join(str(port["index"]) for port in ports)
+
+
+def auto_select(controllers):
+    companion_of = companion_finder(controllers)
+    owner = {id(port): controller for controller in controllers for port in controller.get("ports", [])}
+
+    def seen(port):
+        return bool(port.get("devices") or port.get("seen"))
+
+    def used(port):
+        companion = companion_of(port)
+        return seen(port) or bool(companion and seen(companion))
+
+    def type_c(port):
+        companion = companion_of(port)
+        return bool(port.get("type_c") or (companion and companion.get("type_c")))
+
+    def usb3(port):
+        companion = companion_of(port)
+        return port.get("class") == SUPER_SPEED or bool(companion and companion.get("class") == SUPER_SPEED)
+
+    def connectable(port):
+        return bool(port.get("user_connectable", True))
+
+    def keep(port):
+        # a jack goes as a unit: internal first, then USB 2 only, then USB 3, Type-C last
+        companion = companion_of(port)
+        external = connectable(port) or bool(companion and connectable(companion))
+        return (external, usb3(port) or type_c(port), type_c(port), -port["index"])
+
+    for controller in controllers:
+        for port in controller.get("ports", []):
+            port["selected"] = bool(connectable(port) or seen(port))
+    paired = set()
+    for controller in controllers:
+        for port in controller.get("ports", []):
+            companion = companion_of(port)
+            if port["selected"] and companion and not companion.get("selected"):
+                companion["selected"] = True
+                paired.add(id(companion))
+
+    # automatic codes go to "guessed" so the next run can revise them; "type" is only set by hand
+    for controller in controllers:
+        for port in controller.get("ports", []):
+            if not port["selected"] or port.get("type") is not None:
+                continue
+            if type_c(port):
+                has_companion = bool((port.get("companion") or {}).get("port"))
+                port["guessed"] = TYPE_C_USB2_ONLY if port.get("class") == HIGH_SPEED and not has_companion else TYPE_C_WITH_SWITCH
+            elif port.get("guessed") is None:
+                if not connectable(port):
+                    port["guessed"] = TYPE_INTERNAL
+                else:
+                    port["guessed"] = TYPE_USB3_A if usb3(port) else TYPE_USB2_A
+    # both halves of one jack get the code of the half the firmware calls external
+    for controller in controllers:
+        for port in controller.get("ports", []):
+            companion = companion_of(port)
+            if (port["selected"] and connectable(port) and companion and companion.get("selected")
+                    and port.get("type") is None and companion.get("type") is None):
+                companion["guessed"] = port["guessed"]
+
+    notes = {}
+    for controller in controllers:
+        ports = controller.get("ports", [])
+        note = notes[id(controller)] = {"dropped": [], "partners": []}
+        while selected_count(controller) > MAX_PORTS_PER_CONTROLLER:
+            candidates = [port for port in ports if port["selected"] and not used(port)]
+            if not candidates:
+                break
+            port = min(candidates, key=keep)
+            port["selected"] = False
+            note["dropped"].append(port)
+            companion = companion_of(port)
+            if companion is not None and companion.get("selected"):
+                companion["selected"] = False
+                if owner.get(id(companion)) is controller:
+                    note["dropped"].append(companion)
+                else:
+                    note["partners"].append((owner.get(id(companion)) or {}).get("name", "another controller") + " port " + str(companion["index"]))
+
+    report = {"possible": True, "reason": "", "controllers": []}
+    for controller in controllers:
+        ports = controller.get("ports", [])
+        note = notes[id(controller)]
+        info = {"name": controller.get("name"), "total": len(ports), "needs_manual": False, "reasons": [], "error": controller.get("error"),
+                "firmware_marks": any(not connectable(port) for port in ports)}
+        reasons = info["reasons"]
+        if info["error"]:
+            reasons.append("could not read its ports: {}".format(info["error"]))
+        if ports:
+            if info["firmware_marks"]:
+                reasons.append("{} of {} ports reported as external jacks".format(sum(1 for port in ports if connectable(port)), len(ports)))
+            else:
+                reasons.append("the firmware reports every port as an external jack")
+        internal = [port for port in ports if port["selected"] and not connectable(port) and seen(port)]
+        if internal:
+            reasons.append("internal ports in use: {}".format(port_list(internal)))
+        pairs = [port for port in ports if port["selected"] and id(port) in paired]
+        if pairs:
+            reasons.append("added as the USB 2/USB 3 half of a selected port: {}".format(port_list(pairs)))
+        typec = [port for port in ports if port["selected"] and type_c(port)]
+        if typec:
+            reasons.append("Type-C: {}".format(port_list(typec)))
+        if note["dropped"]:
+            reasons.append("left out to stay within {}, never seen with a device: {}".format(MAX_PORTS_PER_CONTROLLER, port_list(note["dropped"])))
+        if note["partners"]:
+            reasons.append("their other halves left out as well: {}".format(", ".join(note["partners"])))
+
+        info["selected"] = selected_count(controller)
+        info["seen"] = sum(1 for port in ports if port["selected"] and seen(port))
+        if info["selected"] > MAX_PORTS_PER_CONTROLLER:
+            info["needs_manual"] = True
+            reasons.append("{} ports are in use or paired with one in use, more than the {} macOS allows".format(info["selected"], MAX_PORTS_PER_CONTROLLER))
+            if report["possible"]:
+                report["possible"] = False
+                report["reason"] = ("{} still has {} ports after leaving out the unused ones, and macOS allows {}. "
+                                    "UTBMap.kext replaces UTBDefault for every controller, so this one cannot be left to UTBDefault on its own; "
+                                    "map the ports by plugging devices in.").format(controller.get("name"), info["selected"], MAX_PORTS_PER_CONTROLLER)
+        report["controllers"].append(info)
+
+    mapped = [info for info in report["controllers"] if info["selected"]]
+    if report["possible"] and not mapped:
+        report["possible"] = False
+        report["reason"] = "no USB ports were found."
+    # Boards that report every port as external give no signal, so a controller is only trusted
+    # when the firmware marks some port internal or at least half its ports have seen a device.
+    # A controller that could not be read at all makes the whole map a guess.
+    trusted = all(info["firmware_marks"] or info["seen"] * 2 >= info["selected"] for info in mapped)
+    trusted = trusted and not any(info["error"] for info in report["controllers"])
+    report.update({
+        "confidence": "good" if trusted else "guess",
+        "selected": sum(info["selected"] for info in mapped),
+        "total": sum(info["total"] for info in mapped),
+        "mapped": len(mapped)
+    })
+    return controllers, report
+
+
+def report_lines(report):
+    lines = []
+    for info in report["controllers"]:
+        text = "{}: {} of {} ports selected".format(info["name"], info["selected"], info["total"])
+        if info["reasons"]:
+            text += "; " + "; ".join(info["reasons"])
+        lines.append(text + ".")
+        if info.get("error"):
+            lines.append("{} could not be read, so its ports will be missing in macOS.".format(info["name"]))
+    if not report["possible"]:
+        lines.append("Automatic map not possible: " + report["reason"])
+    elif report["confidence"] == "good":
+        lines.append("Confidence: good. On every controller the firmware tells internal and external ports apart, or at least half the ports have seen a device.")
+    else:
+        lines.append("Confidence: guess. On at least one controller the firmware reports every port as external and fewer than half the ports have seen a device, "
+                     "or the ports could not be read. Internal headers may be in the map; if a port is dead or sleep fails in macOS, "
+                     "map the ports by plugging a device into each one.")
+    return lines
+
+
 def strip_selection(controllers):
     stored = []
     for controller in controllers:
@@ -728,8 +895,8 @@ class USBMapper:
                     self._device_text(port)[:32], seen[:40]))
         print("")
 
-    def show_selection(self, controllers, message=None):
-        self.utils.head("USB Port Mapping: Select Ports")
+    def show_selection(self, controllers, message=None, auto=False):
+        self.utils.head("USB Port Mapping: Automatic Map" if auto else "USB Port Mapping: Select Ports")
         print("")
         number = 0
         for controller in controllers:
@@ -747,6 +914,11 @@ class USBMapper:
                 print("  \033[1;93m{} ports selected; deselect {} to stay within the {}-port limit.\033[0m".format(
                     count, count - MAX_PORTS_PER_CONTROLLER, MAX_PORTS_PER_CONTROLLER))
             print("")
+        if auto:
+            if message:
+                print(message)
+                print("")
+            return
         print("Connector types: " + ", ".join("{}={}".format(code, label) for code, label in sorted(PORT_TYPES.items()) if code in (0, 3, 8, 9, 10, 255)))
         print("")
         print("Commands:")
@@ -833,25 +1005,72 @@ class USBMapper:
             print("Controllers with no selected ports are left out of the map: {}".format(", ".join(skipped)))
             print("")
 
+    def saved_history(self):
+        saved = self.load_saved()
+        return copy.deepcopy(get_controllers(saved)) if saved else []
+
+    def refresh(self, history):
+        controllers = self.enumerate()
+        if controllers is None:
+            print("")
+            self.utils.request_input("Press Enter to go back...")
+            return None
+        present = set(controller_key(controller) for controller in controllers)
+        dropped = [item.get("name") for item in history if controller_key(item) not in present]
+        if dropped:
+            print("Left out of the map because they are not present in this machine: {}".format(", ".join(str(name) for name in dropped)))
+            history = [item for item in history if controller_key(item) in present]
+        return merge_history(history, controllers)
+
+    def finish(self, controllers):
+        selection = strip_selection(controllers)
+        path = self.save(selection)
+        self.show_final(controllers)
+        print("USB map saved to {}".format(path))
+        print("It is used for every build from now on. Run USB Port Mapping again to change it.")
+        print("")
+        return selection
+
+    def auto_map(self):
+        if not self._supported():
+            return None
+        history = self.refresh(self.saved_history())
+        if history is None:
+            return None
+        history, report = auto_select(history)
+        summary = "\n".join(explain.wrap(line, 78) for line in report_lines(report))
+        message = summary
+        while True:
+            self.show_selection(history, message, auto=True)
+            if report["possible"]:
+                answer = self.utils.request_input("S save this map, E edit it port by port, Q cancel: ").strip().lower()
+            else:
+                answer = self.utils.request_input("E map port by port, Q cancel: ").strip().lower()
+            if answer == "q":
+                return None
+            if answer == "s" and report["possible"]:
+                errors = validate_selection(history)
+                if not errors:
+                    return self.finish(history)
+                message = summary + "\n\033[91m" + "\n".join(errors) + "\033[0m"
+            elif answer == "e":
+                result = self.select_ports(history)
+                if result is None:
+                    return None
+                if result == "back":
+                    return self.discover()
+                return self.finish(result)
+
     def discover(self):
         if not self._supported():
             return None
 
-        saved = self.load_saved()
-        history = copy.deepcopy(get_controllers(saved)) if saved else []
+        history = self.saved_history()
         while True:
             while True:
-                controllers = self.enumerate()
-                if controllers is None:
-                    print("")
-                    self.utils.request_input("Press Enter to go back...")
+                history = self.refresh(history)
+                if history is None:
                     return None
-                present = set(controller_key(controller) for controller in controllers)
-                dropped = [item.get("name") for item in history if controller_key(item) not in present]
-                if dropped:
-                    print("Left out of the map because they are not present in this machine: {}".format(", ".join(str(name) for name in dropped)))
-                    history = [item for item in history if controller_key(item) in present]
-                history = merge_history(history, controllers)
                 self.show_discovery(history)
                 answer = self.utils.request_input("Press Enter to refresh after plugging a device, D when done, Q to cancel: ").strip().lower()
                 if answer == "q":
@@ -864,11 +1083,4 @@ class USBMapper:
                 return None
             if result == "back":
                 continue
-
-            selection = strip_selection(result)
-            path = self.save(selection)
-            self.show_final(result)
-            print("USB map saved to {}".format(path))
-            print("It is used for every build from now on. Run USB Port Mapping again to change it.")
-            print("")
-            return selection
+            return self.finish(result)

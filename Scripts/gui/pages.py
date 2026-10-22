@@ -466,18 +466,22 @@ class UsbMapPage(Page):
     def build(self):
         self.loaded = False
         self.editor = None
-        self.note(self.body, "Plug a USB 2.0 and a USB 3.0 device into every port you use (front panel and Type-C too), pressing Refresh after each. "
+        self.note(self.body, "Automatic map selects the ports from what Windows reports, without plugging anything in. "
+                             "To map by hand, plug a USB 2.0 and a USB 3.0 device into every port you use (front panel and Type-C too), pressing Refresh after each. "
                              "Ports that saw a device are selected. macOS allows at most {} ports per controller.".format(usb_mapper.MAX_PORTS_PER_CONTROLLER), 0)
         bar = ttk.Frame(self.body)
         bar.grid(row=1, column=0, sticky="ew", pady=(0, 4))
+        self.auto_button = ttk.Button(bar, text="Automatic map", command=self.auto_map)
+        self.auto_button.grid(row=0, column=0, padx=(0, 6))
         self.refresh_button = ttk.Button(bar, text="Refresh", command=self.refresh)
-        self.refresh_button.grid(row=0, column=0, padx=(0, 6))
-        ttk.Button(bar, text="Save map", command=self.save).grid(row=0, column=1, padx=(0, 6))
+        self.refresh_button.grid(row=0, column=1, padx=(0, 6))
+        ttk.Button(bar, text="Save map", command=self.save).grid(row=0, column=2, padx=(0, 6))
         self.no_map = tk.BooleanVar(value=False)
-        ttk.Checkbutton(bar, text="Build without a USB map (UTBDefault enables every port)", variable=self.no_map, command=self.toggle_no_map).grid(row=0, column=2, padx=(12, 0))
+        ttk.Checkbutton(bar, text="Build without a USB map (UTBDefault enables every port)", variable=self.no_map, command=self.toggle_no_map).grid(row=0, column=3, padx=(12, 0))
         self.counter = ttk.Label(bar, text="")
-        self.counter.grid(row=0, column=3, padx=(12, 0))
+        self.counter.grid(row=0, column=4, padx=(12, 0))
         if os.name != "nt":
+            self.auto_button.state(["disabled"])
             self.refresh_button.state(["disabled"])
         frame, self.table = widgets.tree(self.body, self.COLUMNS, ("Use", "Port", "Name", "Speed", "Connector type (double-click)", "Connected now", "Seen"),
                                          {"use": 50, "port": 50, "name": 70, "speed": 70, "type": 220, "devices": 220, "seen": 200}, height=12, show="tree headings")
@@ -505,6 +509,20 @@ class UsbMapPage(Page):
     def merged(self, controllers):
         self.session.merge_usb(controllers)
         self.redraw()
+
+    def auto_map(self):
+        def work():
+            self.session.load_usb_history()
+            return self.session.auto_usb_map(self.session.usb_enumerate())
+        self.app.run_stage("Automatic USB map", work, on_done=self.auto_done)
+
+    def auto_done(self, report):
+        self.redraw()
+        color = "red" if not report["possible"] else "green" if report["confidence"] == "good" else "orange"
+        text = "\n".join(usb_mapper.report_lines(report))
+        if report["possible"]:
+            text += "\nCheck the table, then press Save map."
+        self.set_label(self.message, text, color)
 
     def controllers(self):
         return self.session.usb_history or []
@@ -560,6 +578,7 @@ class UsbMapPage(Page):
         if number is None:
             return
         ok, message = usb_mapper.toggle_port(self.controllers(), number)
+        self.session.usb_dirty = self.session.usb_dirty or ok
         self.redraw()
         self.set_label(self.message, message, None if ok else "red")
         return "break"
@@ -589,6 +608,7 @@ class UsbMapPage(Page):
     def apply_type(self, number, text):
         code = int(text.split(":", 1)[0])
         ok, message = usb_mapper.set_port_type(self.controllers(), number, code)
+        self.session.usb_dirty = self.session.usb_dirty or ok
         self.redraw()
         self.set_label(self.message, message, None if ok else "red")
 

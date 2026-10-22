@@ -54,7 +54,7 @@ Asked at the prompt containing `Enter the ID of the codec layout`.
 
 Your sound chip has several jacks and an internal speaker wired in a way only the board maker knows. A layout is a map of that wiring. AppleALC ships many layouts per chip, each contributed by someone with a specific board, and the number picks one.
 
-A wrong layout means sound works but a jack is dead, or headphones do not switch. The green default is the first layout by one of a few well known authors, or the first in the list when none of them made one for this chip.
+A wrong layout means sound works but a jack is dead, or headphones do not switch. The app pre-selects the layout whose comment names your board when one exists. Otherwise the green default is a layout made for a similar board with the same chipset, then, on desktops, one made for another board of the same maker, then the first layout by one of a few well known authors, or the first in the list when none of them made one for this chip.
 
 | Answer | Means | Pick it when |
 |---|---|---|
@@ -252,10 +252,11 @@ Without a map, macOS guesses. Usually it boots, but some ports stay dead, sleep 
 
 | Answer | Means | Pick it when |
 |---|---|---|
+| auto | automatic map from firmware data | First try. Windows already knows which ports exist and what connector they have; the app selects them without plugging anything in. On some boards every port is reported as external even when it is not, so if a port is dead or sleep fails afterwards, do the manual map. |
 | map | map the ports on this PC | Always, when you are building on the PC that will run macOS. |
 | skip | use the generic default | When you build on another PC for this one, or just want a first boot quickly. Rebuild with a map later. |
 
-Default: Map.
+Default: Automatic first. Map by plugging devices in if a port is dead or sleep fails.
 
 ## Which drive becomes the installer
 

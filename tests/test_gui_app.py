@@ -202,11 +202,31 @@ class ExpressPageTest(TkTestCase):
     def test_express_progress_marks_the_sidebar(self):
         app = self.make_app(install_hooks=False)
         from Scripts.gui import session as session_module
-        app.dispatch(("progress", session_module.EXPRESS_TITLE, list(session_module.EXPRESS_STEPS), 3, False))
+        app.dispatch(("progress", session_module.EXPRESS_TITLE, list(session_module.EXPRESS_STEPS), session_module.EXPRESS_STEPS.index("EFI build"), False))
         build = next(label for label in app.step_labels if label.cget("text").endswith("Build"))
         self.assertTrue(build.cget("text").startswith("*"))
         app.render_steps()
         self.assertTrue(app.step_labels[0].cget("text").startswith(">"))
+
+
+class UsbMapPageTest(TkTestCase):
+    def test_automatic_map_fills_the_table(self):
+        import json
+        from Scripts import usb_mapper
+        from Scripts.gui import pages as pages_module
+        from test_usb_mapper import CANNED_DUMP
+        app = self.make_app(install_hooks=False)
+        page = app.page_by_class(pages_module.UsbMapPage)
+        report = app.session.auto_usb_map(usb_mapper.parse_controllers(json.dumps(CANNED_DUMP)))
+        page.auto_done(report)
+        text = page.message.cget("text")
+        self.assertIn("Confidence: guess", text)
+        self.assertIn("press Save map", text)
+        self.assertEqual(len(page.table.get_children()), 2)
+        self.assertIn("8 ports selected", page.counter.cget("text"))
+        self.assertFalse(app.session.usb_dirty)
+        page.apply_type(1, "3: USB 3 Type A")
+        self.assertTrue(app.session.usb_dirty)
 
 
 class SelfTestFlagTest(TkTestCase):
