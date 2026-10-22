@@ -7,7 +7,6 @@ from Scripts import utils
 YES_NO = re.compile(r"\(\s*(y(?:es)?)\s*/\s*(n(?:o)?)\s*\)", re.IGNORECASE)
 MENU_LINE = re.compile(r"^\s*(\d{1,3})\.\s+(\S.*?)\s*$")
 LETTER_LINE = re.compile(r"^\s*([A-Za-z])\.\s+(\S.*?)\s*$")
-DEFAULT_VALUE = re.compile(r"\(default:\s*([^)]*)\)", re.IGNORECASE)
 SGR = re.compile(r"\x1b\[([0-9;]*)m")
 OTHER_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-ln-z]")
 PARTIAL_ESCAPE = re.compile(r"\x1b(\[[0-9;?]*)?$")
@@ -35,7 +34,7 @@ def is_press_enter(prompt):
 
 
 def default_answer(prompt):
-    match = DEFAULT_VALUE.search(str(prompt))
+    match = utils.DEFAULT_VALUE.search(str(prompt))
     return match.group(1).strip() if match else None
 
 
@@ -147,6 +146,9 @@ class PromptBroker:
         self.pending = None
         self._preset_prompt = None
         self._preset_count = 0
+        self.accept_defaults = False
+        self._default_prompt = None
+        self._default_count = 0
 
     def set_presets(self, mapping):
         self.presets = [(str(key).lower(), "" if value is None else str(value)) for key, value in (mapping or {}).items() if key]
@@ -155,6 +157,21 @@ class PromptBroker:
 
     def clear_presets(self):
         self.set_presets({})
+
+    def set_accept_defaults(self, enabled):
+        self.accept_defaults = bool(enabled)
+        self._default_prompt = None
+        self._default_count = 0
+
+    def accepted_default(self, prompt):
+        if not self.accept_defaults or default_answer(prompt) is None:
+            return False
+        if prompt == self._default_prompt:
+            self._default_count += 1
+        else:
+            self._default_prompt = prompt
+            self._default_count = 1
+        return self._default_count <= PRESET_REPEAT_LIMIT
 
     def preset_for(self, prompt):
         lowered = str(prompt).lower()
@@ -204,6 +221,9 @@ class PromptBroker:
         preset = self.preset_for(prompt)
         if preset is not None:
             return preset
+        # the prompts treat an empty answer as their default
+        if self.accepted_default(prompt):
+            return ""
 
         context = captured or ""
         if prompt == self.last_prompt and self.last_captured and self.last_captured not in context:

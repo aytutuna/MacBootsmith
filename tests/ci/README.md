@@ -13,6 +13,10 @@ Workflow: `.github/workflows/ci.yml`. Triggers: push, pull request, manual dispa
   Any other code fails the job. After exit 0 or 2 the job also runs ocvalidate explicitly on
   `Results/EFI/OC/config.plist` and uploads `Results/EFI` as artifact `efi-<fixture>`.
   `OCK_Files` is cached, keyed on the workflow file hash and the ISO week.
+  The desktop entry then runs the express chain with `tests/fixtures/answers-express.json` (exit 0 required).
+  That file sets `"express": true`, `"usb_map": false`, a docs-only kit and `"skip_recovery": true` (also the
+  default), so CI does not download the recovery image (about 900 MB). Express exits 3 only when nothing can be
+  installed and 1 on any other stop.
 - **package** (windows-latest, needs test): builds the windowed exe from `MacBootsmith.py` with
   `packaging/macbootsmith.spec`, uploads it, then runs it headless and with `--self-test`; output goes to
   `MacBootsmith.log` because the exe has no console. See `packaging/README.md`.

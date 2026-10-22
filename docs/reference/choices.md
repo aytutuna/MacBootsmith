@@ -1,5 +1,7 @@
 # Prompts and what to answer
 
+The express run ("Build everything with recommended choices", menu option A) takes every default shown as (default: ...); yes/no questions, device choices and the OpenCore Legacy Patcher warning are still asked.
+
 Most prompts have a default; pressing Enter takes it. This lists the ones where the choice is not obvious.
 
 ## Tahoe audio kext

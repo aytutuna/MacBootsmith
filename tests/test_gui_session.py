@@ -84,6 +84,7 @@ class SessionPipelineTest(unittest.TestCase):
         with self.assertRaises(session_module.StageError) as raised:
             self.session.load_report(os.path.join(FIXTURES, "laptop", "Report.json"))
         self.assertIn("not compatible", str(raised.exception))
+        self.assertIsInstance(raised.exception, session_module.UnsupportedHardware)
         self.assertIsNone(self.session.hardware_report)
 
     def test_invalid_report_lists_the_errors(self):
@@ -152,6 +153,234 @@ class SessionHelpersTest(unittest.TestCase):
         paths = session_module.Session().paths()
         self.assertTrue(paths["recovery"].endswith(os.path.join("Results", "com.apple.recovery.boot")))
         self.assertTrue(paths["usbmap"].endswith(os.path.join("SysReport", "USBMap.json")))
+
+
+class FakeUtils:
+    def __init__(self):
+        self.steps = []
+
+    def progress_bar(self, title, steps, index, done=False):
+        self.steps.append("done" if done else steps[index])
+
+
+class FakeKexts:
+    def has_discrete_amd_gpu(self, report):
+        return False
+
+    def monitor_on_intel_gpu(self, report):
+        return False
+
+
+class FakeChecker:
+    hardware_report = None
+
+
+class FakeOcpe:
+    def __init__(self):
+        self.u = FakeUtils()
+        self.k = FakeKexts()
+        self.c = FakeChecker()
+        self.result_dir = "Results"
+
+
+GPU_REPORT = {"CPU": {"Processor Name": "Core i5-10400", "Manufacturer": "GenuineIntel", "Compatibility": ("25.99.99", "17.0.0")},
+              "GPU": {"UHD 630": {"Compatibility": ("25.99.99", "17.0.0")}}}
+
+
+class ExpressTest(unittest.TestCase):
+    def setUp(self):
+        self.calls = []
+        self.defaults = []
+        self.ocpe = FakeOcpe()
+        self.session = session_module.Session(ocpe_factory=lambda: self.ocpe, preset_hook=lambda mapping: None, defaults_hook=self.defaults.append)
+        self.native = ("17.0.0", "25.99.99")
+        self.usb_map = None
+        self.ocvalidate = "passed"
+        self.configure_hook = lambda: None
+        session = self.session
+
+        def preflight():
+            self.calls.append("preflight")
+            return {"warnings": ["bitlocker"]}
+
+        def load_report(path, acpi_dir=None):
+            self.calls.append("load_report")
+            session.hardware_report = GPU_REPORT
+            session.native_macos_version = self.native
+            session.suggested_macos_version = "25.99.99" if self.native else None
+            return {"warnings": ["report warning"]}
+
+        def configure(darwin, options):
+            self.calls.append(("configure", darwin, options["audio"]))
+            self.configure_hook()
+            session.macos_version = "25.99.99"
+            session.smbios_model = "iMac20,1"
+            session.configured = True
+
+        def build():
+            self.calls.append("build")
+            return {"ocvalidate": self.ocvalidate, "result_dir": "Results", "usb_map": self.usb_map, "bios": {"disable": [], "enable": [], "notes": []}, "preflight": ["bitlocker"]}
+
+        def recovery(version):
+            self.calls.append(("recovery", version))
+            return "Results/com.apple.recovery.boot"
+
+        def post_install_kit(mode):
+            self.calls.append(("kit", mode))
+            return {"dest_dir": "Results/PostInstall"}
+
+        session.preflight = preflight
+        session.load_report = load_report
+        session.scan_report = lambda: self.calls.append("scan_report") or load_report(None)
+        session.configure = configure
+        session.build = build
+        session.recovery = recovery
+        session.post_install_kit = post_install_kit
+
+    def test_full_chain_order_and_summary(self):
+        summary = self.session.express("report.json")
+        self.assertEqual(self.calls, ["preflight", "load_report", ("configure", 25, None), "build", ("recovery", "25.99.99"), ("kit", "full")])
+        self.assertEqual(self.ocpe.u.steps, list(session_module.EXPRESS_STEPS) + ["done"])
+        self.assertEqual(self.defaults, [True, False])
+        self.assertEqual(summary["macos_name"], "macOS Tahoe 26")
+        self.assertEqual(summary["smbios"], "iMac20,1")
+        self.assertEqual(summary["recovery"], "Results/com.apple.recovery.boot")
+        self.assertEqual(summary["kit"], "Results/PostInstall")
+        self.assertEqual(summary["warnings"], ["bitlocker", "report warning", session_module.USB_MAP_NOTE])
+        self.assertIn("SMBIOS: iMac20,1", session_module.summary_lines(summary))
+
+    def test_scans_when_no_report_is_given(self):
+        self.session.express()
+        self.assertEqual(self.calls[1], "scan_report")
+
+    def test_stops_when_nothing_is_installable(self):
+        self.native = None
+        report = {"GPU": {"RTX 5070 Ti": {"Compatibility": (None, None)}}}
+
+        def load_report(path, acpi_dir=None):
+            self.session.hardware_report = report
+            self.session.native_macos_version = None
+            return {"warnings": []}
+
+        self.session.load_report = load_report
+        with self.assertRaises(session_module.UnsupportedHardware) as raised:
+            self.session.express("report.json")
+        self.assertIn("RTX 5070 Ti", str(raised.exception))
+        self.assertEqual(self.calls, ["preflight"])
+        self.assertEqual(self.defaults, [True, False])
+
+    def test_failed_compatibility_check_names_the_device(self):
+        self.ocpe.c.hardware_report = {"CPU": {"Processor Name": "Core Ultra 9 275HX", "Compatibility": ("25.99.99", "17.0.0")},
+                                       "GPU": {"Arc": {"Compatibility": (None, None)}, "RTX 5070 Ti": {"Compatibility": (None, None)}}}
+
+        def load_report(path, acpi_dir=None):
+            raise session_module.UnsupportedHardware("This hardware is not compatible with macOS.")
+
+        self.session.load_report = load_report
+        with self.assertRaises(session_module.UnsupportedHardware) as raised:
+            self.session.express("report.json")
+        self.assertIn("Arc, RTX 5070 Ti", str(raised.exception))
+        self.assertNotIn("Core Ultra", str(raised.exception))
+
+    def test_other_load_failures_keep_their_message(self):
+        self.ocpe.c.hardware_report = {"GPU": {"Arc": {"Compatibility": (None, None)}}}
+
+        def load_report(path, acpi_dir=None):
+            raise session_module.StageError("The hardware report report.json failed validation.", ["missing CPU"])
+
+        self.session.load_report = load_report
+        with self.assertRaises(session_module.StageError) as raised:
+            self.session.express("report.json")
+        self.assertNotIsInstance(raised.exception, session_module.UnsupportedHardware)
+        self.assertEqual(str(raised.exception), "The hardware report report.json failed validation.")
+
+    def test_unsupported_devices_lists_gpus_only_when_none_work(self):
+        report = {"CPU": {"Processor Name": "Old CPU", "Compatibility": (None, None)},
+                  "GPU": {"Arc": {"Compatibility": (None, None)}, "UHD 630": {"Compatibility": ("25.99.99", "17.0.0")}, "Unchecked": {}}}
+        self.assertEqual(session_module.unsupported_devices(report), ["Old CPU"])
+        report["GPU"]["UHD 630"]["Compatibility"] = (None, None)
+        self.assertEqual(session_module.unsupported_devices(report), ["Old CPU", "Arc", "UHD 630"])
+        self.assertEqual(session_module.unsupported_devices({"CPU": {"Processor Name": "Unchecked"}}), [])
+
+    def test_ocvalidate_errors_skip_the_recovery_download(self):
+        self.ocvalidate = "errors"
+        summary = self.session.express("report.json")
+        self.assertNotIn(("recovery", "25.99.99"), self.calls)
+        self.assertIsNone(summary["recovery"])
+        self.assertTrue(any("ocvalidate reported errors" in warning for warning in summary["warnings"]))
+        self.assertEqual(self.calls[-1], ("kit", "full"))
+
+    def test_kit_can_be_left_out(self):
+        summary = self.session.express("report.json", kit_mode=None, recovery=False)
+        self.assertEqual(self.calls[-1], "build")
+        self.assertIsNone(summary["kit"])
+        self.assertIn("Post-install kit: not prepared", session_module.summary_lines(summary))
+        self.assertEqual(self.ocpe.u.steps, ["Windows preflight", "Hardware scan", "Configuration", "EFI build", "done"])
+
+    def test_usb_map_note_only_without_a_map(self):
+        self.usb_map = "SysReport/USBMap.json"
+        summary = self.session.express("report.json")
+        self.assertNotIn(session_module.USB_MAP_NOTE, summary["warnings"])
+
+    def test_recovery_can_be_skipped(self):
+        summary = self.session.express("report.json", kit_mode="docs-only", recovery=False)
+        self.assertNotIn(("recovery", "25.99.99"), self.calls)
+        self.assertEqual(self.calls[-1], ("kit", "docs-only"))
+        self.assertIsNone(summary["recovery"])
+        self.assertNotIn("macOS recovery", self.ocpe.u.steps)
+
+    def test_express_options_leave_audio_to_the_prompt(self):
+        self.assertEqual(session_module.EXPRESS_OPTIONS, {"audio": None, "broadcom": "1", "whatevergreen": "yes", "debug": False})
+        presets = session_module.Session().option_presets(25, session_module.EXPRESS_OPTIONS)
+        self.assertNotIn("Select audio kext for your system", presets)
+        self.assertEqual(presets["Select Broadcom Wi-Fi option"], "1")
+
+    def test_defaults_are_answered_without_a_dialog(self):
+        script = ScriptedPrompts({"Select a GPU device": "1"})
+        prompts = broker.PromptBroker(script.post)
+        self.session.preset_hook = prompts.set_presets
+        self.session.defaults_hook = prompts.set_accept_defaults
+        answers = []
+        self.configure_hook = lambda: answers.extend([
+            utils.Utils().request_input("Select audio kext for your system (default: 2): "),
+            utils.Utils().request_input("Select a GPU device: ")
+        ])
+        utils.Utils.set_prompt_handler(prompts)
+        restore = utils.Utils.install_output_proxy()
+        utils.Utils.set_output_sink(prompts.sink)
+        try:
+            self.session.express("report.json")
+        finally:
+            utils.Utils.set_prompt_handler(None)
+            utils.Utils.set_output_sink(None)
+            restore()
+        self.assertEqual(answers, ["", "1"])
+        self.assertEqual(script.prompts, ["Select a GPU device: "])
+        self.assertFalse(prompts.accept_defaults)
+
+    def test_broker_posts_defaults_when_not_accepting(self):
+        script = ScriptedPrompts({})
+        prompts = broker.PromptBroker(script.post)
+        prompts("Select audio kext for your system (default: 2): ", "")
+        self.assertEqual(len(script.prompts), 1)
+
+    def test_broker_hands_a_rejected_default_to_the_dialog(self):
+        script = ScriptedPrompts({})
+        prompts = broker.PromptBroker(script.post)
+        prompts.set_accept_defaults(True)
+        prompt = "Select audio kext for your system (default: 2): "
+        for _ in range(broker.PRESET_REPEAT_LIMIT):
+            self.assertEqual(prompts(prompt, ""), "")
+        self.assertEqual(script.prompts, [])
+        prompts(prompt, "")
+        self.assertEqual(script.prompts, [prompt])
+
+    def test_broker_still_asks_yes_no_questions(self):
+        script = ScriptedPrompts({"Legacy Patcher": "yes"})
+        prompts = broker.PromptBroker(script.post)
+        prompts.set_accept_defaults(True)
+        self.assertEqual(prompts("Continue with OpenCore Legacy Patcher? (yes/No): ", ""), "yes")
+        self.assertEqual(len(script.prompts), 1)
 
 
 if __name__ == "__main__":

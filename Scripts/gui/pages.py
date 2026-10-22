@@ -11,6 +11,7 @@ from Scripts.gui import widgets
 from Scripts.gui import winsupport
 from Scripts.gui.session import StageError
 from Scripts.gui.session import macos_name
+from Scripts.gui.session import summary_lines
 
 CHECKED = "[x]"
 UNCHECKED = "[ ]"
@@ -72,21 +73,30 @@ class WelcomePage(Page):
         self.ran = False
         self.note(self.body, "This wizard runs the same stages as the terminal menu: hardware scan, compatibility verdict, macOS choice, USB port map, "
                              "EFI build with ocvalidate, recovery download, USB installer and post-install kit. Every step can be repeated.", 0)
-        ttk.Label(self.body, text="Requirements", font=widgets.bold_font(self)).grid(row=1, column=0, sticky="w", pady=(8, 2))
+        express = ttk.Frame(self.body)
+        express.grid(row=1, column=0, sticky="ew", pady=(4, 4))
+        self.express_button = ttk.Button(express, text="Build everything with recommended choices", style="Express.TButton", command=self.express)
+        self.express_button.grid(row=0, column=0, sticky="w")
+        if os.name != "nt":
+            self.express_button.state(["disabled"])
+        self.note(express, "Scans this PC, builds the EFI, downloads the recovery image and prepares the post-install kit. "
+                           "Nothing is written to a USB drive until you choose it on the USB page.", 1, tag="grey")
+        self.express_result = self.note(express, "", 2)
+        ttk.Label(self.body, text="Requirements", font=widgets.bold_font(self)).grid(row=2, column=0, sticky="w", pady=(8, 2))
         frame, self.requirements = widgets.tree(self.body, ("item", "status"), ("Requirement", "Status"), {"item": 340, "status": 420}, height=6)
-        frame.grid(row=2, column=0, sticky="nsew")
+        frame.grid(row=3, column=0, sticky="nsew")
         header = ttk.Frame(self.body)
-        header.grid(row=3, column=0, sticky="ew", pady=(12, 2))
+        header.grid(row=4, column=0, sticky="ew", pady=(12, 2))
         header.columnconfigure(0, weight=1)
         ttk.Label(header, text="Windows preflight (this PC)", font=widgets.bold_font(self)).grid(row=0, column=0, sticky="w")
         self.check_button = ttk.Button(header, text="Run checks", command=self.run_checks)
         self.check_button.grid(row=0, column=1, sticky="e")
         frame, self.checks = widgets.tree(self.body, ("check", "result"), ("Check", "Result"), {"check": 340, "result": 420}, height=4)
-        frame.grid(row=4, column=0, sticky="nsew")
-        ttk.Label(self.body, text="Warnings", font=widgets.bold_font(self)).grid(row=5, column=0, sticky="w", pady=(10, 2))
+        frame.grid(row=5, column=0, sticky="nsew")
+        ttk.Label(self.body, text="Warnings", font=widgets.bold_font(self)).grid(row=6, column=0, sticky="w", pady=(10, 2))
         frame, self.warnings = widgets.scrolled_text(self.body, height=5)
-        frame.grid(row=6, column=0, sticky="nsew")
-        self.body.rowconfigure(6, weight=1)
+        frame.grid(row=7, column=0, sticky="nsew")
+        self.body.rowconfigure(7, weight=1)
         self.fill_requirements()
 
     def fill_requirements(self, admin=None):
@@ -110,6 +120,46 @@ class WelcomePage(Page):
     def run_checks(self):
         self.ran = True
         self.app.run_stage("Checking this PC", self.session.preflight, on_done=self.show_checks)
+
+    def express(self):
+        self.ran = True
+        self.set_label(self.express_result, "")
+        self.app.run_stage("Building everything", self.session.express, on_done=self.express_done, on_error=self.express_failed, on_stopped=self.express_stopped)
+
+    def express_failed(self, error, details):
+        self.app.pages_changed()
+        if self.session.hardware_report:
+            self.app.page_by_class(HardwarePage).show_verdict(self.session.verdict())
+        if self.session.build_result:
+            self.app.page_by_class(BuildPage).show_result(self.session.build_result)
+        return False
+
+    def express_stopped(self, reason, text):
+        self.app.pages_changed()
+        if reason != "cancel":
+            messagebox.showwarning("Build everything", "Building everything stopped: {}".format(text), parent=self)
+
+    def express_done(self, summary):
+        app = self.app
+        session = self.session
+        self.show_checks({"info": session.preflight_info, "warnings": session.preflight_warnings, "error": session.preflight_error, "admin": None})
+        app.page_by_class(HardwarePage).show_verdict(session.verdict())
+        macos = app.page_by_class(MacOSPage)
+        macos.on_show()
+        macos.choice.set(int(str(session.macos_version).split(".")[0]))
+        options = app.page_by_class(OptionsPage)
+        for key, var in options.vars.items():
+            var.set(session.options.get(key) or "")
+        options.debug.set(bool(session.options.get("debug")))
+        options.show_configuration(session.configuration(), advance=False)
+        app.page_by_class(BuildPage).show_result(session.build_result)
+        if summary["recovery"]:
+            app.page_by_class(RecoveryPage).done(summary["recovery"])
+        app.page_by_class(PostInstallPage).show_kit(session.kit_result)
+        lines = summary_lines(summary)
+        self.set_label(self.express_result, "Last run: {}, {}, ocvalidate {}.".format(summary["macos_name"], summary["smbios"], summary["ocvalidate"]), "green")
+        messagebox.showinfo("Build everything", "\n".join(lines + ["", "Next: write the USB drive on the USB page."]), parent=self)
+        app.show_page(app.pages.index(app.page_by_class(UsbWriterPage)))
 
     def show_checks(self, result):
         widgets.clear_tree(self.checks)

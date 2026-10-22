@@ -42,11 +42,15 @@ Open work is tracked in `docs/reference/gaps.md`.
 
 ## How to use
 
+### Quick start
+
+Run `MacBootsmith.bat`, click "Build everything with recommended choices" on the Welcome page, then follow the USB page. The button scans this PC, picks the suggested macOS version, builds and validates the EFI, downloads the recovery image (not when ocvalidate reports errors) and prepares the full post-install kit. It takes every default shown as (default: ...); yes/no questions, device choices and the OpenCore Legacy Patcher warning are still asked. It never writes a USB drive. Without a saved USB map the build uses UTBDefault.kext; map the ports later and build again. In the terminal menu the same run is option A.
+
 ### Graphical interface
 
 Double-click `MacBootsmith.bat` (or run `python MacBootsmith.py`). It finds Python 3, offers to install it from python.org when it is missing, and opens the window without a console. If Tkinter is missing, the terminal menu starts instead. The window walks through the stages in order, with a step list on the left and a log at the bottom:
 
-1. Welcome: requirements and the Windows preflight (BitLocker, partition style, EFI partition size).
+1. Welcome: requirements, the Windows preflight (BitLocker, partition style, EFI partition size) and the express button from the quick start.
 2. Hardware: scan this PC or open an existing report, then read the compatibility verdict per device.
 3. macOS version: the versions this hardware supports; the suggested one is preselected.
 4. Options: audio method on macOS 26, Broadcom Wi-Fi method, WhateverGreen on the first boot, RELEASE or DEBUG build. Next configures the build (SMBIOS, ACPI patches, kexts).
@@ -64,6 +68,8 @@ The window drives the same OpenCore engine stages as the terminal menu and headl
 ### Terminal menu
 
 Run `MacBootsmith.bat --terminal` (or `python MacBootsmith.py --terminal`) as administrator. The main menu offers:
+
+A. Build everything with recommended choices: the express run from the quick start. It ends with a summary and the BIOS checklist; continue with option 10.
 
 1. Select Hardware Report: scan this PC or load an existing report, then check compatibility.
 2. Select macOS Version: choose the target release.
@@ -85,7 +91,7 @@ Headless mode builds an EFI without prompts, from a JSON answers file (used by C
 python MacBootsmith.py --headless <answers.json>
 ```
 
-Add `"debug": true` to the answers file for a DEBUG EFI (see `tests/fixtures/answers-desktop-debug.json`).
+Add `"debug": true` to the answers file for a DEBUG EFI (see `tests/fixtures/answers-desktop-debug.json`). `"express": true` runs the express chain instead (see `tests/fixtures/answers-express.json`); it reads `report`, `acpi`, `usb_map`, `skip_recovery` (default true) and `postinstall_kit` (false for no kit) like a normal run, and exits 3 only when nothing can be installed.
 
 The boot log analyser also runs on its own; it exits 1 when no log is found:
 

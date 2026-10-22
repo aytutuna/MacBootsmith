@@ -16,6 +16,8 @@ Sources are given per section. Where the guide is silent this is said explicitly
 
 Sources: `_ref/dortania-install-guide/prerequisites.md`, `macos-limits.md`, `installer-guide/README.md`.
 
+Express: "Build everything with recommended choices" on the app's Welcome page (option A in the terminal menu) runs the preflight, hardware scan, verdict, EFI build with ocvalidate, recovery download and full post-install kit in one go. It takes the suggested macOS version and every default shown as (default: ...) (see `choices.md`); yes/no questions, device choices and the OpenCore Legacy Patcher warning are still asked. It skips the recovery download when ocvalidate reports errors, and stops before section 3: writing the USB stays a separate, explicit step. It does not map USB ports; a map saved earlier is used, otherwise UTBDefault.kext is.
+
 ## 2. Build the OpenCore folder (EFI)
 
 1. Use the OpenCorePkg release. Folder `X64` for 64-bit firmware, `IA32` for 32-bit firmware. DEBUG gives much more log detail at 3-5 seconds extra boot time; RELEASE boots faster with almost no logging. Switch to RELEASE after install.

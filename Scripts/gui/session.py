@@ -15,12 +15,21 @@ from Scripts.datasets import recovery_boards
 MAIN_MODULE_NAME = "macbootsmith_main"
 MAIN_SCRIPT = "MacBootsmith.py"
 VERDICT_SECTIONS = ("CPU", "GPU", "Sound", "Biometric", "Network", "Storage Controllers", "Bluetooth", "SD Controller")
+EXPRESS_TITLE = "Build everything"
+EXPRESS_STEPS = ("Windows preflight", "Hardware scan", "Configuration", "EFI build", "macOS recovery", "Post-install kit")
+# audio stays unset so the prompt's own default applies; whatevergreen only matters when its prompt appears
+EXPRESS_OPTIONS = {"audio": None, "broadcom": "1", "whatevergreen": "yes", "debug": False}
+USB_MAP_NOTE = "USB ports not mapped: run USB mapping and rebuild for best results."
 
 
 class StageError(Exception):
     def __init__(self, message, details=None):
         super().__init__(message)
         self.details = list(details or [])
+
+
+class UnsupportedHardware(StageError):
+    pass
 
 
 def load_main_module():
@@ -45,9 +54,50 @@ def macos_name(version):
     return os_data.get_macos_name_by_darwin(str(version))
 
 
+def devices(report):
+    for section in VERDICT_SECTIONS:
+        data = report.get(section)
+        if not data or not isinstance(data, dict):
+            continue
+        if section == "CPU":
+            yield section, data.get("Processor Name") or "CPU", data
+            continue
+        for name, props in data.items():
+            if isinstance(props, dict):
+                yield section, name, props
+
+
+def unsupported_devices(report):
+    report = report or {}
+    names = []
+    cpu = report.get("CPU") or {}
+    if "Compatibility" in cpu and not cpu["Compatibility"][0]:
+        names.append(cpu.get("Processor Name") or "CPU")
+    gpus = [(name, props) for name, props in (report.get("GPU") or {}).items() if isinstance(props, dict) and "Compatibility" in props]
+    if gpus and not any(props["Compatibility"][0] for _, props in gpus):
+        names.extend(name for name, _ in gpus)
+    return names
+
+
+def summary_lines(summary):
+    lines = [
+        "macOS: {}".format(summary["macos_name"]),
+        "SMBIOS: {}".format(summary["smbios"]),
+        "ocvalidate: {}".format(summary["ocvalidate"]),
+        "EFI: {}".format(os.path.join(summary["result_dir"], "EFI")),
+        "Recovery: {}".format(summary["recovery"] or "skipped"),
+        "Post-install kit: {}".format(summary["kit"] or "not prepared")
+    ]
+    if summary["warnings"]:
+        lines.append("Warnings:")
+        lines.extend("  - {}".format(warning) for warning in summary["warnings"])
+    return lines
+
+
 class Session:
-    def __init__(self, preset_hook=None, ocpe_factory=None):
-        self.preset_hook = preset_hook or (lambda mapping: None)
+    def __init__(self, preset_hook=None, ocpe_factory=None, defaults_hook=None):
+        self.preset_hook = preset_hook or utils.Utils.set_presets
+        self.defaults_hook = defaults_hook or utils.Utils.set_accept_defaults
         self.ocpe_factory = ocpe_factory
         self.ocpe = None
         self.preflight_info = None
@@ -161,10 +211,10 @@ class Session:
 
         try:
             hardware_report, native_macos_version, ocl_patched_macos_version = ocpe.c.check_compatibility(data)
-        except utils.GuiExit as e:
+        except (utils.GuiExit, utils.HeadlessExit) as e:
             if getattr(e, "reason", None) == "cancel":
                 raise
-            raise StageError("This hardware is not compatible with macOS. The log shows which device stopped the check.")
+            raise UnsupportedHardware("This hardware is not compatible with macOS. The log shows which device stopped the check.")
 
         self.report_path = report_path
         self.acpi_dir = acpi_dir
@@ -178,32 +228,26 @@ class Session:
     def verdict(self):
         checker = self.ocpe.c if self.ocpe is not None else None
         rows = []
-        report = self.hardware_report or {}
-        for section in VERDICT_SECTIONS:
-            data = report.get(section)
-            if not data or not isinstance(data, dict):
-                continue
-            items = [(data.get("Processor Name") or "CPU", data)] if section == "CPU" else [(name, props) for name, props in data.items() if isinstance(props, dict)]
-            for name, props in items:
-                compatibility = props.get("Compatibility")
-                oclp = props.get("OCLP Compatibility")
-                if not compatibility:
-                    status = "unchecked"
-                elif not compatibility[0]:
-                    status = "unsupported"
-                else:
-                    status = "supported"
-                if oclp and status != "supported":
-                    status = "oclp"
-                label = checker.show_macos_compatibility(compatibility) if checker else str(compatibility)
-                rows.append({
-                    "section": section,
-                    "name": name,
-                    "status": status,
-                    "support": utils.ANSI_ESCAPE.sub("", label),
-                    "max_macos": macos_name(compatibility[0]) if compatibility and compatibility[0] else "-",
-                    "oclp": "{} to {}".format(macos_name(oclp[-1]), macos_name(oclp[0])) if oclp else ""
-                })
+        for section, name, props in devices(self.hardware_report or {}):
+            compatibility = props.get("Compatibility")
+            oclp = props.get("OCLP Compatibility")
+            if not compatibility:
+                status = "unchecked"
+            elif not compatibility[0]:
+                status = "unsupported"
+            else:
+                status = "supported"
+            if oclp and status != "supported":
+                status = "oclp"
+            label = checker.show_macos_compatibility(compatibility) if checker else str(compatibility)
+            rows.append({
+                "section": section,
+                "name": name,
+                "status": status,
+                "support": utils.ANSI_ESCAPE.sub("", label),
+                "max_macos": macos_name(compatibility[0]) if compatibility and compatibility[0] else "-",
+                "oclp": "{} to {}".format(macos_name(oclp[-1]), macos_name(oclp[0])) if oclp else ""
+            })
         native = self.native_macos_version
         ocl = self.ocl_patched_macos_version
         return {
@@ -382,6 +426,70 @@ class Session:
                 checklist = handle.read()
         self.kit_result = dict(result, checklist=checklist, bios=self.bios_requirements())
         return self.kit_result
+
+    def express(self, report_path=None, acpi_dir=None, kit_mode="full", recovery=True):
+        ocpe = self.ensure_ocpe()
+        steps = [step for step in EXPRESS_STEPS if (recovery or step != "macOS recovery") and (kit_mode or step != "Post-install kit")]
+
+        def step(name):
+            ocpe.u.progress_bar(EXPRESS_TITLE, steps, steps.index(name))
+
+        self.build_result = None
+        self.defaults_hook(True)
+        try:
+            step("Windows preflight")
+            warnings = list(self.preflight()["warnings"])
+
+            step("Hardware scan")
+            try:
+                verdict = self.load_report(report_path, acpi_dir) if report_path else self.scan_report()
+            except UnsupportedHardware as e:
+                blocked = unsupported_devices(getattr(ocpe.c, "hardware_report", None))
+                if blocked:
+                    raise UnsupportedHardware("Nothing can be installed: macOS does not support {}.".format(", ".join(blocked)), e.details)
+                raise
+            darwin = self.default_macos()
+            if not self.native_macos_version or darwin is None:
+                blocked = unsupported_devices(self.hardware_report)
+                raise UnsupportedHardware("Nothing can be installed: macOS does not support {}.".format(", ".join(blocked) or "this hardware"))
+            warnings += verdict["warnings"]
+
+            step("Configuration")
+            self.configure(darwin, dict(EXPRESS_OPTIONS))
+
+            step("EFI build")
+            result = self.build()
+            warnings += result["preflight"]
+            if not result["usb_map"]:
+                warnings.append(USB_MAP_NOTE)
+
+            recovery_path = None
+            if recovery and result["ocvalidate"] == "errors":
+                warnings.append("Recovery download skipped: ocvalidate reported errors, so the EFI needs fixing first.")
+            elif recovery:
+                step("macOS recovery")
+                recovery_path = self.recovery(self.macos_version)
+
+            kit = None
+            if kit_mode:
+                step("Post-install kit")
+                kit = self.post_install_kit(kit_mode)
+            ocpe.u.progress_bar(EXPRESS_TITLE, steps, len(steps), done=True)
+        finally:
+            self.defaults_hook(False)
+
+        return {
+            "macos_name": macos_name(self.macos_version),
+            "macos_version": self.macos_version,
+            "smbios": self.smbios_model,
+            "ocvalidate": result["ocvalidate"],
+            "result_dir": result["result_dir"],
+            "recovery": recovery_path,
+            "kit": kit.get("dest_dir") if kit else None,
+            "usb_map": result["usb_map"],
+            "bios": result["bios"],
+            "warnings": list(dict.fromkeys(warnings))
+        }
 
     def usb_disks(self):
         ocpe = self.ensure_ocpe()

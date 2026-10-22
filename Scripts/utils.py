@@ -12,6 +12,7 @@ import tempfile
 import threading
 
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+DEFAULT_VALUE = re.compile(r"\(default:\s*([^)]*)\)", re.IGNORECASE)
 
 class HeadlessExit(BaseException):
     pass
@@ -97,6 +98,12 @@ class Utils:
     _headless_prompt_counts = {}
     _headless_total_count = 0
 
+    presets = []
+    _preset_counts = {}
+    accept_defaults = False
+    _default_prompt = None
+    _default_count = 0
+
     def __init__(self, script_name = "MacBootsmith"):
         self.script_name = script_name
 
@@ -107,6 +114,38 @@ class Utils:
         cls._headless_repeat_count = 0
         cls._headless_prompt_counts = {}
         cls._headless_total_count = 0
+
+    @classmethod
+    def set_presets(cls, mapping):
+        cls.presets = [(str(key).lower(), "" if value is None else str(value)) for key, value in (mapping or {}).items() if key]
+        cls._preset_counts = {}
+
+    @classmethod
+    def set_accept_defaults(cls, enabled):
+        cls.accept_defaults = bool(enabled)
+        cls._default_prompt = None
+        cls._default_count = 0
+
+    @classmethod
+    def automatic_answer(cls, prompt):
+        lowered = prompt.lower()
+        for key, value in cls.presets:
+            if key in lowered:
+                count = cls._preset_counts[prompt] = cls._preset_counts.get(prompt, 0) + 1
+                if count <= 3:
+                    return value
+                # the prompt keeps rejecting the preset: stop answering it automatically
+                return None
+        if cls.accept_defaults and (DEFAULT_VALUE.search(prompt) or lowered.strip().startswith("press enter")):
+            if prompt == cls._default_prompt:
+                cls._default_count += 1
+            else:
+                cls._default_prompt = prompt
+                cls._default_count = 1
+            # an empty answer asked for again means the default was not accepted; hand over instead of spinning
+            if cls._default_count <= 3:
+                return ""
+        return None
 
     @classmethod
     def is_headless(cls):
@@ -369,6 +408,12 @@ class Utils:
             os.startfile(folder_path)
 
     def request_input(self, prompt="Press Enter to continue..."):
+        if Utils.prompt_handler is None:
+            answer = Utils.automatic_answer(str(prompt))
+            if answer is not None:
+                print("{}{}".format(prompt, answer or "[Enter]"))
+                return answer
+
         if Utils.is_headless():
             return self.headless_answer(prompt)
 
@@ -452,7 +497,8 @@ class Utils:
     def exit_program(self):
         if Utils.is_headless():
             raise HeadlessExit("Program exit requested")
-        if Utils.is_gui():
+        # express runs inside the menu, so an exit request ends the run, not the program
+        if Utils.is_gui() or Utils.accept_defaults:
             raise GuiExit("Program exit requested")
 
         self.head()

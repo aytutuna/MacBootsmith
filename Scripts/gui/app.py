@@ -10,6 +10,8 @@ from Scripts.gui import broker as broker_module
 from Scripts.gui import pages
 from Scripts.gui import widgets
 from Scripts.gui import winsupport
+from Scripts.gui.session import EXPRESS_STEPS
+from Scripts.gui.session import EXPRESS_TITLE
 from Scripts.gui.session import Session
 from Scripts.gui.session import StageError
 
@@ -17,6 +19,7 @@ APP_TITLE = "MacBootsmith"
 POLL_MS = 50
 STAGE_OUTPUT_LIMIT = 20000
 LOG_LINE_LIMIT = 5000
+EXPRESS_PAGES = dict(zip(EXPRESS_STEPS, ("Welcome", "Hardware", "Options", "Build", "Recovery", "Post-install")))
 
 
 class PromptDialog(tk.Toplevel):
@@ -105,7 +108,7 @@ class MacBootsmithApp(tk.Tk):
         self.queue = queue.Queue()
         self.broker = broker_module.PromptBroker(self.queue.put)
         self.runner = broker_module.StageRunner(self.broker, self.queue.put)
-        self.session = Session(preset_hook=self.broker.set_presets)
+        self.session = Session(preset_hook=self.broker.set_presets, defaults_hook=self.broker.set_accept_defaults)
         self.callbacks = {}
         self.dialogs = []
         self.generation = 0
@@ -151,6 +154,7 @@ class MacBootsmithApp(tk.Tk):
                 break
         self.style.configure("Step.TLabel", padding=(14, 6))
         self.style.configure("CurrentStep.TLabel", padding=(14, 6), font=widgets.bold_font(self))
+        self.style.configure("Express.TButton", padding=(16, 8), font=widgets.bold_font(self))
 
     def build_layout(self):
         self.columnconfigure(0, weight=1)
@@ -238,11 +242,18 @@ class MacBootsmithApp(tk.Tk):
         self.index = index
         page = self.pages[index]
         page.tkraise()
-        for position, label in enumerate(self.step_labels):
-            marker = ">" if position == index else " "
-            label.configure(text="{} {:>2}  {}".format(marker, position + 1, self.pages[position].title), style="CurrentStep.TLabel" if position == index else "Step.TLabel")
+        self.render_steps()
         page.on_show()
         self.update_nav()
+
+    def render_steps(self, running=None):
+        for position, label in enumerate(self.step_labels):
+            title = self.pages[position].title
+            if running:
+                marker, current = ("*", True) if title == running else (" ", False)
+            else:
+                marker, current = (">", True) if position == self.index else (" ", False)
+            label.configure(text="{} {:>2}  {}".format(marker, position + 1, title), style="CurrentStep.TLabel" if current else "Step.TLabel")
 
     def jump(self, index):
         if self.runner.busy():
@@ -358,6 +369,8 @@ class MacBootsmithApp(tk.Tk):
             if steps and 0 <= index < len(steps) and not done:
                 self.set_status("{}: {}...".format(title, steps[index]))
             self.pages[self.index].on_progress(title, steps, index, done)
+            if title == EXPRESS_TITLE and not done and 0 <= index < len(steps):
+                self.render_steps(EXPRESS_PAGES.get(steps[index]))
         elif kind == "prompt":
             request = message[1]
             if self.closing:
@@ -379,6 +392,7 @@ class MacBootsmithApp(tk.Tk):
         self.percent_progress = False
         if self.closing:
             return
+        self.render_steps()
         self.after_idle(self.update_nav)
         if kind == "done":
             self.set_status("{}: done.".format(label))

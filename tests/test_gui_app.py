@@ -158,6 +158,57 @@ class AppSmokeTest(TkTestCase):
         self.assertEqual(app.pages[2].selected(), app.session.default_macos())
 
 
+class ExpressPageTest(TkTestCase):
+    def test_express_done_fills_the_pages_and_opens_the_usb_page(self):
+        from Scripts.gui import pages as pages_module
+        app = self.make_app(install_hooks=False)
+        session = app.session
+        session.configuration = lambda: {"macos_name": "macOS Tahoe 26", "macos_version": "25.99.99", "needs_oclp": False, "smbios_model": "iMac20,1",
+                                         "debug": False, "kexts": ["Lilu"], "acpi_patches": [], "disabled_devices": []}
+        session.build_result = {"ocvalidate": "passed", "result_dir": "Results", "usb_map": None, "preflight": [], "first_boot": [], "debug_notes": [], "post_install": []}
+        session.kit_result = {"dest_dir": "Results/PostInstall", "checklist": "steps", "tools": {}, "bios": None}
+        session.options = {"audio": None, "broadcom": "1", "whatevergreen": "yes", "debug": False}
+        session.native_macos_version = ("17.0.0", "25.99.99")
+        session.suggested_macos_version = "24.99.99"
+        session.macos_version = "25.99.99"
+        summary = {"macos_name": "macOS Tahoe 26", "smbios": "iMac20,1", "ocvalidate": "passed", "result_dir": "Results",
+                   "recovery": None, "kit": "Results/PostInstall", "warnings": [], "bios": None}
+        with mock.patch.object(pages_module.messagebox, "showinfo") as info:
+            app.pages[0].express_done(summary)
+        self.assertIsInstance(app.pages[app.index], pages_module.UsbWriterPage)
+        self.assertIn("SMBIOS: iMac20,1", info.call_args[0][1])
+        self.assertEqual(app.page_by_class(pages_module.OptionsPage).vars["whatevergreen"].get(), "yes")
+        self.assertEqual(app.page_by_class(pages_module.MacOSPage).selected(), 25)
+        self.assertIn("ocvalidate passed", app.pages[0].express_result.cget("text"))
+
+    def test_express_failure_still_shows_the_verdict(self):
+        from Scripts.gui import pages as pages_module
+        from Scripts.gui.session import UnsupportedHardware
+        app = self.make_app(install_hooks=False)
+        app.session.hardware_report = {"GPU": {"RTX 5070 Ti": {"Compatibility": (None, None)}}}
+        self.assertFalse(app.pages[0].express_failed(UnsupportedHardware("Nothing can be installed"), ""))
+        table = app.page_by_class(pages_module.HardwarePage).table
+        self.assertEqual([table.item(row)["values"][1] for row in table.get_children()], ["RTX 5070 Ti"])
+
+    def test_express_stop_warns_unless_cancelled(self):
+        from Scripts.gui import pages as pages_module
+        app = self.make_app(install_hooks=False)
+        with mock.patch.object(pages_module.messagebox, "showwarning") as warning:
+            app.pages[0].express_stopped("cancel", "Cancelled by the user")
+            warning.assert_not_called()
+            app.pages[0].express_stopped("exit", "Program exit requested")
+            warning.assert_called_once()
+
+    def test_express_progress_marks_the_sidebar(self):
+        app = self.make_app(install_hooks=False)
+        from Scripts.gui import session as session_module
+        app.dispatch(("progress", session_module.EXPRESS_TITLE, list(session_module.EXPRESS_STEPS), 3, False))
+        build = next(label for label in app.step_labels if label.cget("text").endswith("Build"))
+        self.assertTrue(build.cget("text").startswith("*"))
+        app.render_steps()
+        self.assertTrue(app.step_labels[0].cget("text").startswith(">"))
+
+
 class SelfTestFlagTest(TkTestCase):
     def test_launcher_self_test_opens_and_closes(self):
         script = os.path.join(REPO_ROOT, "MacBootsmith.py")

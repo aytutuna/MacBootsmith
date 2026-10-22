@@ -145,6 +145,25 @@ jobs:
           name: efi-${{ matrix.fixture }}
           path: Results/EFI
           if-no-files-found: error
+      - name: Express build
+        # after the upload, so the artifact stays the plain headless build
+        if: matrix.fixture == 'desktop'
+        shell: bash
+        env:
+          PYTHONIOENCODING: utf-8
+        run: |
+          set +e
+          python MacBootsmith.py --headless tests/fixtures/answers-express.json | tee express.txt
+          code=${PIPESTATUS[0]}
+          echo "express exit code: $code (expected: 0)"
+          if [ "$code" != "0" ]; then
+            echo "::error::express build exited with $code"
+            exit 1
+          fi
+          if ! grep -q "^Post-install kit: " express.txt; then
+            echo "::error::the express summary was not printed"
+            exit 1
+          fi
 
   package:
     needs: test

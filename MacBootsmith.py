@@ -1,5 +1,6 @@
 from Scripts.datasets import os_data
 from Scripts.datasets import chipset_data
+from Scripts.gui import session
 from Scripts.sniffer import hardware_sniffer
 from Scripts import acpi_guru
 from Scripts import app_paths
@@ -691,6 +692,71 @@ class OCPE:
         print("Headless build result: exit={} folder={} smbios={} ocvalidate={}".format(exit_code, self.result_dir, smbios_model or "none", validation_status))
         return exit_code
 
+    def print_bios_requirements(self, bios_requirements):
+        print("")
+        print("BIOS/UEFI settings:")
+        for title, field in (("Disable", "disable"), ("Enable", "enable"), ("Notes", "notes")):
+            for item in bios_requirements[field]:
+                print("    {}: {}".format(title, item))
+
+    def apply_headless_usb_map(self, usb_map):
+        if usb_map is False or (isinstance(usb_map, str) and usb_map.strip().lower() == "none"):
+            self.usb_map_override = False
+        elif isinstance(usb_map, str) and usb_map.strip():
+            self.usb_map_override = self.resolve_headless_path(usb_map)
+        elif usb_map is not None:
+            raise Exception('usb_map must be a path, false or "none".')
+
+    def express(self, report_path=None, acpi_dir=None, kit_mode="full", recovery=True):
+        express = session.Session(ocpe_factory=lambda: self)
+        express.usb_map_disabled = self.usb_map_override is False
+        try:
+            return express, express.express(report_path, acpi_dir, kit_mode, recovery), None
+        except session.StageError as e:
+            print("")
+            print("\033[91m{}\033[0m".format(e))
+            for line in e.details:
+                print("  - {}".format(line))
+            return express, None, e
+        except utils.GuiExit as e:
+            print("")
+            print("Stopped.")
+            return express, None, e
+        except Exception as e:
+            print("")
+            print("\033[91mError: {}\033[0m".format(e))
+            return express, None, e
+
+    def express_menu(self):
+        express, summary, _ = self.express()
+        if summary:
+            self.u.head(session.EXPRESS_TITLE)
+            print("")
+            for line in session.summary_lines(summary):
+                print(line)
+            self.print_bios_requirements(summary["bios"])
+            print("")
+            print("Next: 10. Create USB Installer")
+        print("")
+        self.u.request_input("Press Enter to main menu...")
+        return express
+
+    def run_headless_express(self, answers):
+        self.u.set_headless(answers)
+        self.apply_headless_usb_map(answers.get("usb_map"))
+        report = answers.get("report") or "sniff"
+        report_path = None if str(report).lower() == "sniff" else self.resolve_headless_path(report)
+        acpi_dir = self.resolve_headless_path(answers["acpi"]) if answers.get("acpi") else None
+        recovery = not answers.get("skip_recovery", True)
+        express, summary, error = self.express(report_path, acpi_dir, answers.get("postinstall_kit") or None, recovery)
+        if not summary:
+            return self.print_headless_summary(3 if isinstance(error, session.UnsupportedHardware) else 1)
+        print("")
+        for line in session.summary_lines(summary):
+            print(line)
+        self.print_bios_requirements(summary["bios"])
+        return self.print_headless_summary(0 if summary["ocvalidate"] == "passed" else 2, summary["smbios"], summary["ocvalidate"])
+
     def run_headless(self, answers):
         kit_mode = answers.get("postinstall_kit", False)
         if kit_mode not in (False, None) and kit_mode not in postinstall_kit.MODES:
@@ -699,6 +765,9 @@ class OCPE:
         debug_answer = answers.get("debug")
         if debug_answer not in (None, True, False):
             raise Exception("debug must be true or false.")
+
+        if answers.get("express"):
+            return self.run_headless_express(answers)
 
         macos_answer = self.resolve_headless_macos_version(answers.get("macos_version", ""))
         prompts = {"Please enter the macOS version": macos_answer}
@@ -713,13 +782,7 @@ class OCPE:
 
         self.ac.dsdt = self.ac.acpi.acpi_tables = None
 
-        usb_map = answers.get("usb_map")
-        if usb_map is False or (isinstance(usb_map, str) and usb_map.strip().lower() == "none"):
-            self.usb_map_override = False
-        elif isinstance(usb_map, str) and usb_map.strip():
-            self.usb_map_override = self.resolve_headless_path(usb_map)
-        elif usb_map is not None:
-            raise Exception('usb_map must be a path, false or "none".')
+        self.apply_headless_usb_map(answers.get("usb_map"))
 
         report = answers.get("report")
         acpi_path = answers.get("acpi")
@@ -803,12 +866,7 @@ class OCPE:
         print("Windows preflight:")
         self.pf.show(hardware_report, customized_hardware)
 
-        bios_requirements = self.check_bios_requirements(hardware_report, customized_hardware, self.k.bios_overrides())
-        print("")
-        print("BIOS/UEFI settings:")
-        for title, field in (("Disable", "disable"), ("Enable", "enable"), ("Notes", "notes")):
-            for item in bios_requirements[field]:
-                print("    {}: {}".format(title, item))
+        self.print_bios_requirements(self.check_bios_requirements(hardware_report, customized_hardware, self.k.bios_overrides()))
 
         first_boot_notes = self.first_boot_notes(customized_hardware)
         if first_boot_notes:
@@ -872,6 +930,7 @@ class OCPE:
         ocl_patched_macos_version = None
         needs_oclp = False
         smbios_model = None
+        express = None
 
         while True:
             self.u.head()
@@ -885,8 +944,13 @@ class OCPE:
                     print("  Disabled Devices:")
                     for device, _ in disabled_devices.items():
                         print("    - {}".format(device))
+            if express and express.kit_result:
+                print("")
+                print("  Next: 10. Create USB Installer")
             print("")
 
+            print("A. Build everything with recommended choices")
+            print("")
             print("1. Select Hardware Report")
             print("2. Select macOS Version")
             print("3. Customize ACPI Patch")
@@ -905,7 +969,29 @@ class OCPE:
             option = self.u.request_input("Select an option: ")
             if option.lower() == "q":
                 self.u.exit_program()
-           
+
+            if option.lower() == "a":
+                express = self.express_menu()
+                if express.configured:
+                    hardware_report_path = express.report_path
+                    hardware_report = express.hardware_report
+                    native_macos_version = express.native_macos_version
+                    ocl_patched_macos_version = express.ocl_patched_macos_version
+                    macos_version = express.macos_version
+                    customized_hardware = express.customized_hardware
+                    disabled_devices = express.disabled_devices
+                    needs_oclp = express.needs_oclp
+                    smbios_model = express.smbios_model
+                else:
+                    # the run reset the loaded report, so start over as on a fresh launch
+                    hardware_report_path = hardware_report = native_macos_version = ocl_patched_macos_version = None
+                    macos_version = customized_hardware = disabled_devices = smbios_model = None
+                    needs_oclp = False
+                continue
+
+            if option in ("1", "2", "3", "4", "5"):
+                express = None
+
             if option == "1":
                 hardware_report_path, hardware_report = self.select_hardware_report()
                 hardware_report, native_macos_version, ocl_patched_macos_version = self.c.check_compatibility(hardware_report)
