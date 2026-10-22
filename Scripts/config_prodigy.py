@@ -307,8 +307,6 @@ class ConfigProdigy:
             contents.append("\033[1;93mNote:\033[0m")
             contents.append("- The default layout may not be optimal.")
             contents.append("- Test different layouts to find what works best for your system.")
-            contents.append("- The ID tells AppleALC which pin configuration to use for this codec. Each entry was contributed for a specific board, and the green default comes from a well known author.")
-            contents.append("- If sound is missing or a jack does not work after install, change only DeviceProperties -> PciRoot(...)/Pci(...) -> layout-id (or alcid= in boot-args) and reboot. No rebuild is needed.")
             contents.append("")
             content = "\n".join(contents)
 
@@ -740,7 +738,10 @@ class ConfigProdigy:
         debug_settings["SysReport"] = False
         return config
 
-    def csr_active_config(self, macos_version):
+    def csr_active_config(self, macos_version, needs_oclp):
+        # kexts injected by OpenCore load with SIP on; only root patches need it lowered
+        if not needs_oclp:
+            return "00000000"
         if self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version("20.0.0"):
             return "030A0000"
         elif self.utils.parse_darwin_version(macos_version) >= self.utils.parse_darwin_version("18.0.0"):
@@ -857,7 +858,7 @@ class ConfigProdigy:
 
         del config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["#INFO (prev-lang:kbd)"]
         config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["boot-args"] = self.boot_args(hardware_report, macos_version, needs_oclp, kexts, config)
-        config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["csr-active-config"] = self.utils.hex_to_bytes(self.csr_active_config(macos_version))
+        config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["csr-active-config"] = self.utils.hex_to_bytes(self.csr_active_config(macos_version, needs_oclp))
         config["NVRAM"]["Delete"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"].append("csr-active-config")
         config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]["prev-lang:kbd"] = self.utils.hex_to_bytes("")
 

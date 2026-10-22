@@ -94,9 +94,10 @@ Pipeline: post-install. Idea: a generated checklist (`.md` or `.command`) on the
 
 Partly covered: SSE4.2/AVX2 (`compatibility_checker.py:72-86`, 136-159), unsupported NVMe (`compatibility_checker.py:341`), fingerprint (line 249), Intel VMD (333-336). Not found: 64-thread kernel limit (24 threads on OS X 10.10 and older), laptop features the guide calls unsupported (Intel SST microphone, I2C Windows Hello, combo headphone jack input, Thunderbolt hot-plug), Intel RST/RAID SATA mode (only VMD is checked), Intel 600p, Optane acceleration. Pipeline: verdict. Idea: extend the existing per-device compatibility checks.
 
-### 13. SIP value is not among the guide's documented values
+### 13. SIP and SecureBootModel on builds without root patches
 
-- Checked: `config_prodigy.py` `csr_active_config` returns `030A0000` for Big Sur and newer, `FF070000` for Mojave/Catalina, `FF030000` for High Sierra. The guide lists `00000000`, `03000000`, `FF030000`, `FF070000`, `FF0F0000` and warns that unauthenticated-root and Apple-internal flags can break OS updates. The sources do not decode `0x0A03`, so whether it is wise cannot be judged from them (unverified). Flag for review against the intended OCLP/OTA behaviour.
+- Fixed 2026-10-22: `config_prodigy.py` `csr_active_config` returns `00000000` (SIP on, the guide's value for a normal build) unless the build needs root patches. Kexts injected by OpenCore do not need SIP lowered. Builds with root patches keep `030A0000` for Big Sur and newer (untrusted kexts, unrestricted filesystem, unauthenticated root: the bits MacPatch and OCLP check before patching), `FF070000` for Mojave/Catalina and `FF030000` for High Sierra. `build_summary.json` and the kit read the value back from the written config.
+- Still open: `SecureBootModel` stays as upstream sets it: `Default` only for macOS 11 to 13 without root patches and `Disabled` everywhere else. Apple Secure Boot checks macOS system files at boot, so leaving it off on 14+ is a security cost even when nothing is patched. Upstream turns it off there together with RestrictEvents `revpatch=sbvmm` so Software Update keeps offering updates on the Mac models it picks; changing it needs a boot and update test per SMBIOS model, which has not been done.
 
 ## Covered already (no action)
 

@@ -274,6 +274,48 @@ class GenarateBootPersistenceTest(unittest.TestCase):
         self.assertFalse(any("DisableSecurityPolicy" in note for note in prodigy.bios_notes))
 
 
+class SipTest(unittest.TestCase):
+    def test_sip_stays_on_without_root_patches(self):
+        prodigy = config_prodigy.ConfigProdigy()
+        for version in ("17.0.0", "19.0.0", "22.0.0", "25.0.0"):
+            self.assertEqual(prodigy.csr_active_config(version, False), "00000000")
+        self.assertEqual(prodigy.csr_active_config("25.0.0", True), "030A0000")
+        self.assertEqual(prodigy.csr_active_config("20.0.0", True), "030A0000")
+        self.assertEqual(prodigy.csr_active_config("19.0.0", True), "FF070000")
+        self.assertEqual(prodigy.csr_active_config("17.0.0", True), "FF030000")
+
+
+@unittest.skipUnless(os.path.exists(SAMPLE_CONFIG), "OpenCorePkg sample config not downloaded")
+class GenarateSipTest(unittest.TestCase):
+    def build(self, needs_oclp):
+        prodigy = config_prodigy.ConfigProdigy()
+        prodigy.smbios.generate_smbios = lambda model: {"SystemProductName": model, "SystemSerialNumber": "TESTSERIAL0", "MLB": "TESTMLB000000000", "SystemUUID": "00000000-0000-0000-0000-000000000000", "ROM": "112233445566"}
+        with open(SAMPLE_CONFIG, "rb") as sample:
+            config = plistlib.load(sample)
+        kexts = copy.deepcopy(kext_data.kexts)
+        for kext in kexts:
+            kext.checked = kext.required
+        with contextlib.redirect_stdout(io.StringIO()):
+            prodigy.genarate(load_desktop_report(), {}, "iMac20,1", "25.0.0", needs_oclp, kexts, config)
+        nvram = config["NVRAM"]["Add"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"]
+        self.assertIn("csr-active-config", config["NVRAM"]["Delete"]["7C436110-AB2A-4BBB-A880-FE41995C9F82"])
+        return nvram["csr-active-config"].hex().upper()
+
+    def test_desktop_build_keeps_sip_on(self):
+        self.assertEqual(self.build(False), "00000000")
+
+    def test_root_patch_build_lowers_sip(self):
+        self.assertEqual(self.build(True), "030A0000")
+
+    def test_patch_manifest_gets_the_lowered_value(self):
+        from Scripts import postinstall_kit
+        prodigy = config_prodigy.ConfigProdigy()
+        config = {"NVRAM": {"Add": {"7C436110-AB2A-4BBB-A880-FE41995C9F82": {"csr-active-config": bytes.fromhex(prodigy.csr_active_config("25.0.0", True))}}}}
+        summary = postinstall_kit.make_build_summary(load_desktop_report(), config, "iMac20,1", "25.0.0", True, applealc=True)
+        self.assertTrue(postinstall_kit.macpatch_entries(summary))
+        self.assertEqual(postinstall_kit.make_patch_manifest(summary)["sip"], "030A0000")
+
+
 class BIOSNotesTest(unittest.TestCase):
     def setUp(self):
         module = load_main_module()

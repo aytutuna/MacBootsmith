@@ -33,6 +33,7 @@ KEXTSTAT_AMFIPASS = ("/usr/sbin/kextstat", "-list-only")
 
 
 QUIET = logging.NullHandler()
+BUILD_SIP = int.from_bytes(bytes.fromhex("030A0000"), "little")
 
 
 def setUpModule():
@@ -812,6 +813,15 @@ class LauncherTest(unittest.TestCase):
                 self.assertEqual(source.readline().strip(), "# Adapted from OpenCore Legacy Patcher 3.0.0 (sys_patch), BSD-4-Clause, see LICENSE.")
         with open(os.path.join(TOOL_DIR, "LICENSE"), "r", encoding="utf-8") as licence:
             self.assertIn("This product includes software developed by Dortania and OpenCore Legacy Patcher contributors.", licence.read())
+
+
+class BuildSipTest(unittest.TestCase):
+    # the kit only ships MacPatch with builds that need root patches, and those get csr-active-config 030A0000
+    def test_build_value_passes_the_sip_check_for_every_set(self):
+        for xnu in range(patchsets.BIG_SUR, patchsets.TAHOE + 1):
+            self.assertFalse(detect.sip_enabled(BUILD_SIP, patchsets.required_sip(list(patchsets.SETS), xnu)), xnu)
+            self.assertFalse(detect.sip_enabled(BUILD_SIP, patchsets.root_patch_sip(xnu)), xnu)
+        self.assertTrue(detect.sip_enabled(0, patchsets.root_patch_sip(patchsets.TAHOE)))
 
 
 if __name__ == "__main__":
