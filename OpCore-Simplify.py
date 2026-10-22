@@ -508,7 +508,8 @@ class OCPE:
             simplehda=self.k.kexts[kext_index["SimpleHDA"]].checked,
             bcmc=self.k.kexts[kext_index["AppleBCMWLANCompanion"]].checked,
             usb_map_kext=usb_map_kext,
-            debug=debug
+            debug=debug,
+            airportitlwm=self.k.kexts[kext_index["AirportItlwm"]].checked
         )
         self.pk.save_summary(self.build_summary, os.path.join(self.result_dir, postinstall_kit.SUMMARY_NAME))
         kit_dir = os.path.join(self.result_dir, postinstall_kit.KIT_FOLDER)
@@ -521,7 +522,11 @@ class OCPE:
         self.u.head("Prepare Post-Install Kit")
         print("")
         if not summary:
-            print("\033[1;93mBuild the OpenCore EFI first (option 7). The kit is made from {}.\033[0m".format(os.path.join(self.result_dir, postinstall_kit.SUMMARY_NAME)))
+            summary_path = os.path.join(self.result_dir, postinstall_kit.SUMMARY_NAME)
+            if self.pk.summary_outdated(summary_path):
+                print("\033[1;93m{} is from an older version of this app; rebuild the EFI (option 7).\033[0m".format(summary_path))
+            else:
+                print("\033[1;93mBuild the OpenCore EFI first (option 7). The kit is made from {}.\033[0m".format(summary_path))
             return None
 
         if mode is None:

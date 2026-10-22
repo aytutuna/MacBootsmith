@@ -25,6 +25,8 @@ datas = [
     data("Scripts/datasets/background_picker.icns", "Scripts/datasets"),
 ]
 datas += [(path, "docs/reference") for path in sorted(glob.glob(os.path.join(ROOT, "docs", "reference", "*.md")))]
+# MacPatch runs on the Mac, so it ships as plain files for the post-install kit
+datas += [(path, "postinstall/macpatch") for path in sorted(glob.glob(os.path.join(ROOT, "postinstall", "macpatch", "*"))) if os.path.isfile(path)]
 
 # collect_submodules skips folders without __init__.py, so the scanner is listed by hand
 hiddenimports = ["updater"] + collect_submodules("Scripts") + ["Scripts.sniffer." + name for name in (

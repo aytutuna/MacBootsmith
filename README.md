@@ -73,7 +73,7 @@ Run `OpCore-Simplify.bat` as administrator. The main menu offers:
 6. USB Port Mapping: discover the ports on this machine and choose which ones macOS gets (at most 15 per controller).
 7. Build OpenCore EFI: write the EFI and run ocvalidate on it. Answer yes to the DEBUG question only to diagnose a boot that fails: the EFI then uses the DEBUG OpenCore build and writes a log file to the EFI partition on every boot.
 8. Download macOS Recovery: fetch the recovery image for the chosen release.
-9. Prepare Post-Install Kit: write the post-install checklist, helper script and SMBIOS values to `Results\PostInstall`, with or without the tools.
+9. Prepare Post-Install Kit: write the post-install checklist, helper script and SMBIOS values to `Results\PostInstall`, with or without the tools. When the build needs root patches it also writes `patches.json` and copies MacPatch, a root patcher for macOS that applies the OpenCore Legacy Patcher patch sets listed there (AppleHDA on Tahoe; Broadcom, Atheros and AirportItlwm Wi-Fi). MacPatch has not been run on a real machine yet.
 10. Create USB Installer: format a USB drive and write the installer, or copy only the EFI to an existing drive. The post-install kit is copied too when it exists.
 11. Analyze Boot Log: read the newest `opencore-*.txt` from a drive letter, folder or file (a QEMU `serial.log` works too) and report how far the boot got, the known errors it contains with their fixes, and the last lines. Serial numbers, MLB and system-id are masked. No hardware report is needed.
 
@@ -101,13 +101,14 @@ Run the tests:
 python -m unittest discover -s tests
 ```
 
-The CI workflow (`.github/workflows/ci.yml`) has five jobs:
+The CI workflow (`.github/workflows/ci.yml`) has six jobs:
 
 - test: the unit tests.
 - build: headless EFI build per hardware report fixture (desktop, desktop-debug, laptop), with an ocvalidate check, a DEBUG settings check for desktop-debug and, for the desktop fixture, a docs-only post-install kit check; the EFI is uploaded as an artifact.
 - boot: boots the desktop and desktop-debug EFIs in QEMU, checks that the OpenCore picker appears, and runs the boot log analyser on the serial log.
 - package: builds the Windows app with PyInstaller (`packaging/macbootsmith.spec`), runs a headless desktop build and the window self-test with the packaged app, and uploads it as the MacBootsmith-windows artifact. See `packaging/README.md`.
 - recovery-download: downloads and verifies a macOS 26 recovery image.
+- macpatch: runs the MacPatch tests with the macOS runner's system Python and a dry run against a Tahoe manifest (it never patches).
 
 Design notes live in `docs/reference/` (BIOS settings, install flow, post-install, OCLP, Tahoe, prompt choices, gaps, external links).
 
@@ -125,7 +126,7 @@ No Apple software is included. The recovery image is downloaded by you, from App
 - [USBToolBox](https://github.com/USBToolBox/tool): USB mapping tooling and kext.
 - [SSDTTime](https://github.com/corpnewt/SSDTTime) and [ProperTree](https://github.com/corpnewt/ProperTree) by corpnewt.
 - [Dortania guides](https://dortania.github.io/OpenCore-Install-Guide/): the reference for OpenCore setup.
-- [OpenCore Legacy Patcher](https://github.com/dortania/OpenCore-Legacy-Patcher): root patching for unsupported hardware.
+- [OpenCore Legacy Patcher](https://github.com/dortania/OpenCore-Legacy-Patcher) by Dortania: root patching for unsupported hardware. MacPatch in `postinstall/macpatch` adapts its sys_patch code (BSD-4-Clause, see `postinstall/macpatch/LICENSE`) and installs files from its PatcherSupportPkg. This product includes software developed by Dortania and OpenCore Legacy Patcher contributors.
 
 ## License
 

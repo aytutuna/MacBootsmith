@@ -1,3 +1,4 @@
+import ast
 import contextlib
 import importlib.util
 import io
@@ -152,16 +153,19 @@ class ChecklistTest(unittest.TestCase):
         titles = section_titles(self.render(needs_oclp=True, bcmc=True, whatevergreen_first_boot={"agdp_patch": False}))
         self.assertEqual(titles, [
             "First boot checks", "Re-enable WhateverGreen", "Move the EFI to the internal disk",
-            "Root patches with OCLP-Mod", "Audio", "Broadcom Wi-Fi firmware", "USB ports",
+            "Root patches", "Audio", "Broadcom Wi-Fi firmware", "USB ports",
             "Before signing in with an Apple Account", "Sleep", "macOS updates", "If it does not boot"
         ])
 
     def test_oclp_section_toggles(self):
         off = self.render(needs_oclp=False)
-        self.assertNotIn("Root patches with OCLP-Mod", section_titles(off))
+        self.assertNotIn("Root patches", section_titles(off))
         self.assertNotIn("OCLP-Mod", off)
+        self.assertNotIn("MacPatch", off)
         on = self.render(needs_oclp=True)
-        self.assertIn("Root patches with OCLP-Mod", section_titles(on))
+        self.assertIn("Root patches", section_titles(on))
+        self.assertIn("Root patches: needed (OCLP-Mod)", on)
+        self.assertNotIn("Root Patch.command", on)
         oclp = next(tool for tool in postinstall_tools.tools if tool["name"] == "OCLP-Mod")
         self.assertIn(oclp["sha256"], on)
         self.assertIn("FileVault must be off", on)
@@ -172,7 +176,7 @@ class ChecklistTest(unittest.TestCase):
     def test_tahoe_audio_through_oclp_is_explained(self):
         text = self.render(needs_oclp=True, simplehda=False)
         self.assertIn("including AppleHDA for analog audio", text)
-        self.assertIn("analog audio works only after the OCLP-Mod root patch", text)
+        self.assertIn("analog audio works only after the AppleHDA root patch", text)
 
     def test_broadcom_section_toggles(self):
         off = self.render(bcmc=False)
@@ -500,6 +504,169 @@ class KitBuildTest(unittest.TestCase):
         self.assertEqual(os.listdir(self.dest), ["Tools"])
 
 
+def wifi_report(*devices, gpu=None):
+    report = canned_report()
+    for name, device_id, compatibility in devices:
+        report["Network"][name] = {"Device ID": device_id, "PCI Path": "PciRoot(0x0)/Pci(0x1c,0x0)/Pci(0x0,0x0)"}
+        if compatibility:
+            report["Network"][name]["OCLP Compatibility"] = compatibility
+    if gpu:
+        report["GPU"] = gpu
+    return report
+
+
+class RootPatchManifestTest(unittest.TestCase):
+    TAHOE_OCLP = ("25.99.99", "20.0.0")
+
+    def patches(self, report=None, version="25.0.0", simplehda=False, bcmc=False, airportitlwm=False):
+        data = postinstall_kit.make_build_summary(report or canned_report(), canned_config(), "iMac20,1", version, True,
+                                                  applealc=True, simplehda=simplehda, bcmc=bcmc, airportitlwm=airportitlwm)
+        return data["root_patches"]
+
+    def test_tahoe_audio_without_simplehda(self):
+        self.assertEqual(self.patches(), [{"set": "modern_audio"}])
+        self.assertEqual(self.patches(simplehda=True), [])
+        self.assertEqual(self.patches(version="24.0.0"), [])
+
+    def test_no_audio_entry_without_applealc(self):
+        data = postinstall_kit.make_build_summary(canned_report(), canned_config(), "iMac20,1", "25.0.0", True, applealc=False)
+        self.assertEqual(data["root_patches"], [])
+
+    def test_broadcom_wifi(self):
+        report = wifi_report(("Broadcom BCM4360", "14E4-43A0", ("25.99.99", "23.0.0")))
+        self.assertEqual(self.patches(report, simplehda=True), [{"set": "modern_wireless", "device": "14E4-43A0", "name": "Broadcom BCM4360"}])
+        self.assertEqual(self.patches(report, version="22.0.0", simplehda=True), [])
+
+    def test_companion_gets_no_patch(self):
+        self.assertEqual(self.patches(canned_report(broadcom=True), simplehda=True, bcmc=True), [])
+        report = canned_report(broadcom=True)
+        report["Network"]["Broadcom BCM4350"]["OCLP Compatibility"] = ("25.99.99", "23.0.0")
+        self.assertEqual(self.patches(report, simplehda=True, bcmc=True), [])
+        self.assertEqual(self.patches(report, simplehda=True), [{"set": "modern_wireless", "device": "14E4-43A3", "name": "Broadcom BCM4350"}])
+
+    def test_legacy_wireless(self):
+        report = wifi_report(("Broadcom BCM4328", "14E4-4328", self.TAHOE_OCLP), ("Atheros AR93xx", "168C-0030", self.TAHOE_OCLP),
+                             ("Atheros AR9462", "168C-0034", None))
+        self.assertEqual([(entry["set"], entry["device"]) for entry in self.patches(report, simplehda=True)],
+                         [("legacy_wireless", "14E4-4328"), ("legacy_wireless", "168C-0030")])
+
+    def test_airportitlwm_on_sequoia_and_tahoe(self):
+        report = wifi_report(("Intel Wi-Fi 6 AX201", "8086-02F0", None))
+        expected = [{"set": "modern_wireless", "device": "8086-02F0", "name": "Intel Wi-Fi 6 AX201"}]
+        self.assertEqual(self.patches(report, version="24.0.0", airportitlwm=True), expected)
+        self.assertEqual(self.patches(report, simplehda=True, airportitlwm=True), expected)
+        self.assertEqual(self.patches(report, version="23.0.0", airportitlwm=True), [])
+        self.assertEqual(self.patches(report, simplehda=True), [])
+
+    def test_gpu_is_recorded_as_not_covered(self):
+        gpu = {
+            "NVIDIA GeForce GTX 680": {"Device ID": "10DE-1180", "Codename": "Kepler", "OCLP Compatibility": ("25.99.99", "21.0.0")},
+            "Intel UHD Graphics 630": {"Device ID": "8086-9BC5", "Codename": "Comet Lake"}
+        }
+        self.assertEqual(self.patches(wifi_report(gpu=gpu), simplehda=True), [
+            {"set": "graphics", "codename": "Kepler", "device": "10DE-1180", "name": "NVIDIA GeForce GTX 680", "supported": False}
+        ])
+
+    def test_manifest_fields_and_pin(self):
+        data = summary(needs_oclp=True, simplehda=False)
+        manifest = postinstall_kit.make_patch_manifest(data)
+        self.assertEqual(manifest["version"], 1)
+        self.assertEqual(manifest["root_patches"], [{"set": "modern_audio"}])
+        for key in ("macos_version", "macos_name", "smbios_model", "sip", "secure_boot_model", "boot_args"):
+            self.assertEqual(manifest[key], data[key])
+        self.assertEqual(manifest["payload"], postinstall_tools.patcher_support_pkg)
+        json.dumps(manifest)
+
+    def test_pin_matches_the_tool(self):
+        with open(os.path.join(REPO_ROOT, "postinstall", "macpatch", "payload.py"), "r", encoding="utf-8") as source:
+            tree = ast.parse(source.read())
+        pin = next(ast.literal_eval(node.value) for node in tree.body if isinstance(node, ast.Assign) and node.targets[0].id == "PIN")
+        self.assertEqual(pin, postinstall_tools.patcher_support_pkg)
+
+
+class MacPatchKitTest(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.mkdtemp()
+        self.dest = os.path.join(self.temp, postinstall_kit.KIT_FOLDER)
+        self.kit = postinstall_kit.PostInstallKit(fetcher=FailingFetcher())
+
+    def tearDown(self):
+        shutil.rmtree(self.temp, ignore_errors=True)
+
+    def build(self, data):
+        with contextlib.redirect_stdout(io.StringIO()):
+            return self.kit.build(data, self.dest, "docs-only", config_path=os.path.join(self.temp, "missing.plist"))
+
+    def test_kit_writes_manifest_and_copies_tool(self):
+        result = self.build(summary(needs_oclp=True, simplehda=False))
+        patches_path = os.path.join(self.dest, postinstall_kit.PATCHES_NAME)
+        self.assertIn(patches_path, result["files"])
+        with open(patches_path, "r", encoding="utf-8") as patches_file:
+            self.assertEqual(json.load(patches_file)["root_patches"], [{"set": "modern_audio"}])
+        tool = os.path.join(self.dest, "Tools", "MacPatch")
+        expected = {"__main__.py", "runner.py", "manifest.py", "patchsets.py", "detect.py", "payload.py", "kdk.py", "sysvol.py",
+                    "LICENSE", "Root Patch.command", "Revert Root Patch.command"}
+        self.assertEqual(set(os.listdir(tool)), expected)
+        for name in postinstall_kit.MACPATCH_COMMANDS:
+            with open(os.path.join(tool, name), "rb") as launcher:
+                self.assertNotIn(b"\r\n", launcher.read())
+        with open(os.path.join(self.dest, postinstall_kit.CHECKLIST_NAME), "r", encoding="utf-8") as checklist:
+            text = checklist.read()
+        self.assertIn("bash \"Root Patch.command\" --dry-run", text)
+        self.assertIn("cd \"/Volumes/OPENCORE/PostInstall/Tools/MacPatch\"", text)
+        self.assertIn("has not been run on a real machine yet", text)
+        self.assertIn("FAT32 has no executable bit", text)
+        self.assertIn("rebuilds the kernel cache when a kext is installed", text)
+        self.assertIn("If MacPatch refuses or fails, undo anything it changed with Revert Root Patch.command, reboot, then use OCLP-Mod 3.1.9", text)
+        oclp = next(tool for tool in postinstall_tools.tools if tool["name"] == "OCLP-Mod")
+        self.assertIn(oclp["sha256"], text)
+        self.assertIn("Root patches: needed (MacPatch, Tools/MacPatch)", text)
+        self.assertIn("Revert Root Patch.command", text)
+        self.assertIn("After each update run Root Patch.command", text)
+        with open(os.path.join(self.dest, postinstall_kit.COMMAND_NAME), "r", encoding="utf-8") as command:
+            self.assertIn("Tools/MacPatch/Root Patch.command", command.read())
+
+    def test_rebuild_removes_tool_but_keeps_downloads(self):
+        self.build(summary(needs_oclp=True, simplehda=False))
+        open(os.path.join(self.dest, "Tools", "Hackintool.zip"), "wb").close()
+        removed = self.kit.invalidate(self.dest)
+        self.assertIn(os.path.join(self.dest, postinstall_kit.PATCHES_NAME), removed)
+        self.assertEqual(os.listdir(os.path.join(self.dest, "Tools")), ["Hackintool.zip"])
+
+    def test_nothing_for_macpatch_means_no_tool(self):
+        self.build(summary(needs_oclp=True))
+        self.assertFalse(os.path.exists(os.path.join(self.dest, postinstall_kit.PATCHES_NAME)))
+        self.assertFalse(os.path.exists(os.path.join(self.dest, "Tools")))
+
+    def test_graphics_sends_everything_to_oclp(self):
+        kepler = {"set": "graphics", "codename": "Kepler", "device": "10DE-1180", "name": "NVIDIA GeForce GTX 680", "supported": False}
+        for audio in (True, False):
+            data = summary(needs_oclp=True, simplehda=not audio)
+            data["root_patches"] = ([{"set": "modern_audio"}] if audio else []) + [kepler]
+            self.assertEqual(postinstall_kit.macpatch_entries(data), [])
+            text = self.kit.render_checklist(data)
+            self.assertIn("This build also needs graphics patches (NVIDIA GeForce GTX 680 (Kepler))", text)
+            self.assertIn("Do not mix the two patchers", text)
+            self.assertIn("this kit has no MacPatch and no patches.json", text)
+            self.assertNotIn("Root Patch.command", text)
+            self.assertIn("Open OCLP-Mod, choose Post-Install Root Patch", text)
+            self.assertIn("Root patches: needed (OCLP-Mod)", text)
+            self.assertTrue(text.isascii())
+            self.build(data)
+            self.assertFalse(os.path.exists(os.path.join(self.dest, postinstall_kit.PATCHES_NAME)))
+            self.assertFalse(os.path.exists(os.path.join(self.dest, "Tools", "MacPatch")))
+
+    def test_outdated_summary_is_recognised(self):
+        path = os.path.join(self.temp, postinstall_kit.SUMMARY_NAME)
+        with open(path, "w", encoding="utf-8") as old:
+            json.dump({"version": 1}, old)
+        self.assertIsNone(self.kit.load_summary(path))
+        self.assertTrue(self.kit.summary_outdated(path))
+        self.kit.save_summary(summary(), path)
+        self.assertFalse(self.kit.summary_outdated(path))
+        self.assertFalse(self.kit.summary_outdated(os.path.join(self.temp, "missing.json")))
+
+
 class USBWriterPostInstallTest(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.mkdtemp()
@@ -602,6 +769,13 @@ class MainIntegrationTest(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertIsNone(self.ocpe.prepare_post_install_kit("docs-only"))
         self.assertIn("Build the OpenCore EFI first", output.getvalue())
+
+    def test_kit_from_an_older_summary_asks_for_a_rebuild(self):
+        with open(os.path.join(self.temp, postinstall_kit.SUMMARY_NAME), "w", encoding="utf-8") as old:
+            json.dump({"version": 1, "macos_name": "macOS Tahoe 26"}, old)
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertIsNone(self.ocpe.prepare_post_install_kit("docs-only"))
+        self.assertIn("is from an older version of this app; rebuild the EFI (option 7)", output.getvalue())
 
     def test_kit_from_saved_summary_in_a_later_session(self):
         os.makedirs(os.path.join(self.temp, "EFI", "OC"))

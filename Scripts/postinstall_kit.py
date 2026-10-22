@@ -1,5 +1,6 @@
 from Scripts.datasets import codec_layouts
 from Scripts.datasets import os_data
+from Scripts.datasets import pci_data
 from Scripts.datasets import postinstall_tools
 from Scripts import app_paths
 from Scripts import integrity_checker
@@ -14,7 +15,7 @@ import re
 import shutil
 
 SUMMARY_NAME = "build_summary.json"
-SUMMARY_VERSION = 1
+SUMMARY_VERSION = 2
 KIT_FOLDER = "PostInstall"
 TOOLS_FOLDER = "Tools"
 MANIFEST_NAME = "manifest.json"
@@ -22,6 +23,10 @@ CHECKLIST_NAME = "POST-INSTALL.md"
 COMMAND_NAME = "post-install.command"
 SMBIOS_NAME = "smbios.txt"
 GENERATED_FILES = (CHECKLIST_NAME, COMMAND_NAME, SMBIOS_NAME)
+PATCHES_NAME = "patches.json"
+PATCHES_VERSION = 1
+MACPATCH_FOLDER = "MacPatch"
+MACPATCH_COMMANDS = ("Root Patch.command", "Revert Root Patch.command")
 MODES = ("full", "docs-only")
 
 APPLE_NVRAM_GUID = "7C436110-AB2A-4BBB-A880-FE41995C9F82"
@@ -38,6 +43,21 @@ PMSET_LINES = (
     "sudo pmset tcpkeepalive 0"
 )
 SMBIOS_FIELDS = ("SystemProductName", "SystemSerialNumber", "MLB", "SystemUUID", "ROM")
+
+# Wi-Fi chips OCLP 3.0.0's patch sets cover (device_probe.py chipsets, pci_data.py IDs):
+# AirportBrcmNIC, AirPortBrcm4360 and AirPortBrcmNICThirdParty for modern wireless;
+# AirPortBrcm4331, AppleAirPortBrcm43224 and AirPortAtheros40 for legacy wireless.
+OCLP_MODERN_WIRELESS_IDS = (
+    "14E4-43BA", "14E4-43A3", "14E4-43A0", "14E4-4357", "14E4-43B1", "14E4-43B2", "14E4-4331", "14E4-4353"
+)
+OCLP_LEGACY_WIRELESS_IDS = (
+    "14E4-432B", "14E4-4311", "14E4-4312", "14E4-4313", "14E4-4318", "14E4-4319", "14E4-431A", "14E4-4320",
+    "14E4-4324", "14E4-4325", "14E4-4328", "14E4-432C", "14E4-432D",
+    "168C-0030", "168C-002A", "168C-001C", "168C-0023", "168C-0024"
+)
+# first Darwin major where each patch set is not native
+ROOT_PATCH_FROM = {"modern_audio": 25, "modern_wireless": 23, "legacy_wireless": 21}
+ROOT_PATCH_NAMES = {"modern_audio": "AppleHDA audio", "modern_wireless": "modern Wi-Fi", "legacy_wireless": "legacy Wi-Fi"}
 
 
 def _darwin_tuple(version):
@@ -64,8 +84,74 @@ def _hex(value):
     return str(value or "")
 
 
+def _oclp_covers(compatibility, darwin):
+    return bool(compatibility) and _darwin_tuple(compatibility[-1]) <= darwin <= _darwin_tuple(compatibility[0])
+
+
+def make_root_patches(hardware_report, macos_version, audio, bcmc=False, airportitlwm=False):
+    darwin = _darwin_tuple(macos_version)
+    entries = []
+    if audio and not audio.get("simplehda") and darwin[0] >= ROOT_PATCH_FROM["modern_audio"]:
+        entries.append({"set": "modern_audio"})
+
+    companion_ids = set()
+    if bcmc:
+        companion_ids = set(device_id for tool in postinstall_tools.tools if tool["when"] == "broadcom_companion" for device_id in tool.get("device_ids", []))
+    for name, props in (hardware_report.get("Network") or {}).items():
+        device_id = props.get("Device ID")
+        if device_id in companion_ids:
+            continue
+        if device_id in pci_data.IntelWiFiIDs:
+            if airportitlwm and darwin[0] >= 24:
+                entries.append({"set": "modern_wireless", "device": device_id, "name": name})
+            continue
+        if not _oclp_covers(props.get("OCLP Compatibility"), darwin):
+            continue
+        if device_id in OCLP_MODERN_WIRELESS_IDS:
+            set_id = "modern_wireless"
+        elif device_id in OCLP_LEGACY_WIRELESS_IDS:
+            set_id = "legacy_wireless"
+        else:
+            continue
+        if darwin[0] >= ROOT_PATCH_FROM[set_id]:
+            entries.append({"set": set_id, "device": device_id, "name": name})
+
+    for name, props in (hardware_report.get("GPU") or {}).items():
+        if _oclp_covers(props.get("OCLP Compatibility"), darwin):
+            entries.append({"set": "graphics", "codename": props.get("Codename"), "device": props.get("Device ID"), "name": name, "supported": False})
+    return entries
+
+
+def unsupported_root_patches(summary):
+    return [entry for entry in summary.get("root_patches") or [] if not entry.get("supported", True)]
+
+
+def macpatch_entries(summary):
+    # one patcher per system: MacPatch refuses once OCLP has patched, and OCLP does not know MacPatch's files,
+    # so a build that also needs graphics patches goes to OCLP-Mod for everything
+    if unsupported_root_patches(summary):
+        return []
+    return [entry for entry in summary.get("root_patches") or [] if entry.get("supported", True)]
+
+
+def make_patch_manifest(summary):
+    return {
+        "version": PATCHES_VERSION,
+        "created": summary.get("created"),
+        "macos_version": summary.get("macos_version"),
+        "macos_name": summary.get("macos_name"),
+        "smbios_model": summary.get("smbios_model"),
+        "sip": summary.get("sip"),
+        "secure_boot_model": summary.get("secure_boot_model"),
+        "boot_args": summary.get("boot_args"),
+        "root_patches": summary.get("root_patches") or [],
+        "payload": dict(postinstall_tools.patcher_support_pkg)
+    }
+
+
 def make_build_summary(hardware_report, config, smbios_model, macos_version, needs_oclp, ocvalidate="unavailable",
-                       whatevergreen_first_boot=None, applealc=False, simplehda=False, bcmc=False, usb_map_kext=None, debug=False):
+                       whatevergreen_first_boot=None, applealc=False, simplehda=False, bcmc=False, usb_map_kext=None, debug=False,
+                       airportitlwm=False):
     hardware_report = hardware_report or {}
     config = config or {}
     motherboard = hardware_report.get("Motherboard") or {}
@@ -130,6 +216,7 @@ def make_build_summary(hardware_report, config, smbios_model, macos_version, nee
         "whatevergreen_first_boot": {"agdp_patch": bool(whatevergreen_first_boot.get("agdp_patch"))} if whatevergreen_first_boot else None,
         "audio": audio,
         "broadcom_companion": broadcom,
+        "root_patches": make_root_patches(hardware_report, macos_version, audio, bcmc, airportitlwm),
         "usb_map": {"custom": bool(usb_map_kext), "kext": usb_map_kext or "UTBDefault.kext"},
         "secure_boot_model": security.get("SecureBootModel"),
         "sip": _hex(apple_nvram.get("csr-active-config")).upper(),
@@ -171,6 +258,14 @@ class PostInstallKit:
             return None
         return summary
 
+    def summary_outdated(self, path):
+        try:
+            with open(path, "r", encoding="utf-8") as summary_file:
+                version = json.load(summary_file).get("version")
+        except (OSError, ValueError, AttributeError):
+            return False
+        return isinstance(version, int) and version < SUMMARY_VERSION
+
     def invalidate(self, dest_dir):
         removed = []
         for name in GENERATED_FILES:
@@ -181,9 +276,16 @@ class PostInstallKit:
                     removed.append(path)
                 except OSError as e:
                     print("Could not remove {}: {}".format(path, e))
-        docs_path = os.path.join(dest_dir, DOCS_FOLDER)
-        if os.path.isdir(docs_path):
-            shutil.rmtree(docs_path, ignore_errors=True)
+        patches_path = os.path.join(dest_dir, PATCHES_NAME)
+        if os.path.isfile(patches_path):
+            try:
+                os.remove(patches_path)
+                removed.append(patches_path)
+            except OSError as e:
+                print("Could not remove {}: {}".format(patches_path, e))
+        for folder in (os.path.join(dest_dir, DOCS_FOLDER), os.path.join(dest_dir, TOOLS_FOLDER, MACPATCH_FOLDER)):
+            if os.path.isdir(folder):
+                shutil.rmtree(folder, ignore_errors=True)
         return removed
 
     def applicable_tools(self, summary):
@@ -347,6 +449,87 @@ class PostInstallKit:
     def firmware_tools(self, summary):
         return [tool for tool in self.applicable_tools(summary) if tool["when"] == "broadcom_companion"]
 
+    def oclp_steps(self, summary, status):
+        oclp = next((tool for tool in self.applicable_tools(summary) if tool["name"] == "OCLP-Mod"), None)
+        if not oclp:
+            get = "Download and install OCLP-Mod."
+        elif self.has_file(oclp, status):
+            get = "Install `{}/{}` from this folder.".format(TOOLS_FOLDER, oclp["dest"])
+        else:
+            get = "\n".join([
+                "On the Mac, download {} from {} (about 770 MB; the kit does not include it). Check it before installing:".format(oclp["asset"], oclp["page"]),
+                "",
+                "   ```",
+                "   shasum -a 256 ~/Downloads/{}".format(oclp["asset"]),
+                "   ```",
+                "",
+                "   It must print `{}`.".format(oclp["sha256"])
+            ])
+        return [get, "Open OCLP-Mod, choose Post-Install Root Patch, start root patching and reboot when it finishes. Do not use its Build and Install OpenCore: this EFI was built for this PC. "
+                     "OCLP-Mod was archived by its author in June 2026; release 3.1.9 still works, but its download servers (SimpleHacAPI) are being shut down, so turn SimpleHacAPI off in its settings first. "
+                     "The mainline OpenCore Legacy Patcher from dortania.github.io has the same patch sets but looks for real Mac models, so it may not offer them on this build."]
+
+    def render_root_patches(self, summary, status):
+        audio = summary.get("audio")
+        covered = macpatch_entries(summary)
+        graphics = unsupported_root_patches(summary)
+        reason = "This build targets {} on hardware whose drivers macOS no longer ships".format(summary.get("macos_name"))
+        if audio and _darwin_tuple(summary.get("macos_version")) >= (25, 0, 0) and not audio.get("simplehda"):
+            reason += ", including AppleHDA for analog audio on macOS 26"
+        settings = "The settings in this build (-amfipassbeta, AMFIPass, the Tahoe AirPortBrcmNIC kext) follow the OpenCore Legacy Patcher fork used by OpCore Simplify."
+        risk = "An incompatible root patch can leave a system that does not boot, and the EFI backup does not undo it. Back up the data first and read \"If it does not boot\" before patching."
+        if covered:
+            unverified = "Unverified: MacPatch (`{}/{}` in this folder) applies OCLP's patch sets with OCLP's own files and Kernel Debug Kit handling, but it has not been run on a real machine yet. {} {}".format(TOOLS_FOLDER, MACPATCH_FOLDER, settings, risk)
+        else:
+            unverified = "Unverified: {} This build has not been tested with OCLP-Mod. {}".format(settings, risk)
+
+        steps = [
+            "FileVault must be off before patching. Check with `fdesetup status` and turn it off in System Settings -> Privacy & Security -> FileVault.",
+            "Turn off System Settings -> General -> Software Update -> Automatic Updates -> \"Download new updates when available\". A staged update breaks patching."
+        ]
+        if covered:
+            downloads = "OCLP's PatcherSupportPkg ({} MB)".format(postinstall_tools.patcher_support_pkg["size"] // (1024 * 1024))
+            if any(entry["set"] == "modern_audio" for entry in covered):
+                downloads += " and a Kernel Debug Kit for the installed macOS build (about 1.2 GB)"
+            names = []
+            for entry in covered:
+                if ROOT_PATCH_NAMES[entry["set"]] not in names:
+                    names.append(ROOT_PATCH_NAMES[entry["set"]])
+            steps.extend([
+                "Connect to the internet, Ethernet if possible; MacPatch downloads {} while patching.".format(downloads),
+                "\n".join([
+                    "In Terminal, check first and then patch. For this build patches.json lists {}.".format(" and ".join(names)),
+                    "",
+                    "   ```",
+                    "   cd \"{}/{}/{}\"".format(USB_VOLUME, TOOLS_FOLDER, MACPATCH_FOLDER),
+                    "   bash \"Root Patch.command\" --dry-run",
+                    "   bash \"Root Patch.command\"",
+                    "   ```",
+                    "",
+                    "   The dry run checks SIP, FileVault, AMFI and the system volume and lists every file it would change. The second command asks for your password, patches, rebuilds the kernel cache when a kext is installed (the AppleHDA patch) and creates a new system snapshot; macpatch.log next to patches.json keeps the details. "
+                    "Without Apple's Command Line Tools it opens their installer first; run it again afterwards. Start it from Terminal with bash as shown: FAT32 has no executable bit, so double-clicking it on the USB drive does not work."
+                ]),
+                "Reboot when it finishes."
+            ])
+        else:
+            steps.append("Connect to the internet, Ethernet if possible; the patcher downloads support packages while patching.")
+            steps.extend(self.oclp_steps(summary, status))
+        steps.extend([
+            "Run the root patches again after every macOS update. Updates remove them, and with a patched system volume macOS downloads full installers instead of small updates.",
+            "SIP (csr-active-config {}) and SecureBootModel ({}) are already set by this build. Leave them as they are and do not change SIP from recoveryOS.".format(summary.get("sip") or "as built", summary.get("secure_boot_model") or "as built")
+        ])
+
+        lines = [reason + ". Root patches put them back on the system volume.", "", unverified, ""]
+        lines.extend("{}. {}".format(number, text) for number, text in enumerate(steps, 1))
+        if graphics:
+            lines.extend(["", "This build also needs graphics patches ({}), which MacPatch does not cover yet, so use OCLP-Mod (or the mainline OpenCore Legacy Patcher) for all root patches. "
+                          "Do not mix the two patchers: MacPatch refuses to run once OCLP has patched, and OCLP does not know about files MacPatch installed. That is why this kit has no MacPatch and no patches.json.".format(
+                              ", ".join("{} ({})".format(entry.get("name"), entry.get("codename")) for entry in graphics))])
+        if covered:
+            lines.extend(["", "If MacPatch refuses or fails, undo anything it changed with Revert Root Patch.command, reboot, then use OCLP-Mod 3.1.9:", ""])
+            lines.extend("- " + text for text in self.oclp_steps(summary, status))
+        return "\n".join(lines)
+
     def render_checklist(self, summary, status=None):
         status = status or {}
         darwin = _darwin_tuple(summary.get("macos_version"))
@@ -416,39 +599,7 @@ class PostInstallKit:
         ]))
 
         if summary.get("needs_oclp"):
-            oclp = next((tool for tool in self.applicable_tools(summary) if tool["name"] == "OCLP-Mod"), None)
-            reason = "This build targets {} on hardware whose drivers macOS no longer ships".format(summary.get("macos_name"))
-            if audio and is_tahoe and not audio.get("simplehda"):
-                reason += ", including AppleHDA for analog audio on macOS 26"
-            lines = [
-                reason + ". Root patches put them back on the system volume.",
-                "",
-                "Unverified: the settings in this build (-amfipassbeta, AMFIPass, the Tahoe AirPortBrcmNIC kext, the AppleHDA rollback) follow the OpenCore Legacy Patcher fork used by OpCore Simplify, and this build has not been tested with OCLP-Mod. An incompatible root patch can leave a system that does not boot, and the EFI backup does not undo it. Back up the data first and read \"If it does not boot\" before patching.",
-                "",
-                "1. FileVault must be off before patching. Check with `fdesetup status` and turn it off in System Settings -> Privacy & Security -> FileVault.",
-                "2. Turn off System Settings -> General -> Software Update -> Automatic Updates -> \"Download new updates when available\". A staged update breaks patching.",
-                "3. Connect to the internet, Ethernet if possible; the patcher downloads support packages while patching."
-            ]
-            if oclp:
-                if self.has_file(oclp, status):
-                    lines.append("4. Install `{}/{}` from this folder.".format(TOOLS_FOLDER, oclp["dest"]))
-                else:
-                    lines.append("4. On the Mac, download {} from {} (about 770 MB; the kit does not include it). Check it before installing:".format(oclp["asset"], oclp["page"]))
-                    lines.append("")
-                    lines.append("   ```")
-                    lines.append("   shasum -a 256 ~/Downloads/{}".format(oclp["asset"]))
-                    lines.append("   ```")
-                    lines.append("")
-                    lines.append("   It must print `{}`.".format(oclp["sha256"]))
-            else:
-                lines.append("4. Download and install OCLP-Mod.")
-            lines.extend([
-                "5. Open OCLP-Mod, choose Post-Install Root Patch, start root patching and reboot when it finishes. Do not use its Build and Install OpenCore: this EFI was built for this PC.",
-                "   OCLP-Mod was archived by its author in June 2026. Release 3.1.9 still works, but its download servers (SimpleHacAPI) are being shut down, so turn SimpleHacAPI off in OCLP-Mod settings first. If patching fails, the mainline OpenCore Legacy Patcher from dortania.github.io patches the same drivers; it has not been tested with this build.",
-                "6. Run the root patches again after every macOS update. Updates remove them, and with a patched system volume macOS downloads full installers instead of small updates.",
-                "7. SIP (csr-active-config {}) and SecureBootModel ({}) are already set by this build. Leave them as they are and do not change SIP from recoveryOS.".format(summary.get("sip") or "as built", summary.get("secure_boot_model") or "as built")
-            ])
-            section("Root patches with OCLP-Mod", "\n".join(lines))
+            section("Root patches", self.render_root_patches(summary, status))
 
         if audio:
             layout_id = audio.get("layout_id")
@@ -470,7 +621,7 @@ class PostInstallKit:
                 if audio.get("simplehda"):
                     lines.append("- macOS 26 has no AppleHDA; this build restores it with AppleALC and SimpleHDA, without a root patch.")
                 else:
-                    lines.append("- macOS 26 has no AppleHDA; analog audio works only after the OCLP-Mod root patch above.")
+                    lines.append("- macOS 26 has no AppleHDA; analog audio works only after the AppleHDA root patch above.")
             lines.extend([
                 "",
                 "If there is no sound from the speakers or the headphone jack:",
@@ -565,7 +716,10 @@ class PostInstallKit:
                 "- Before each update keep a copy of the working EFI, update OpenCore and the kexts first if the new release needs it, and read reports about the new build."
             ]
             if summary.get("needs_oclp"):
-                lines.append("- After each update run the OCLP-Mod root patches again.")
+                if macpatch_entries(summary):
+                    lines.append("- After each update run Root Patch.command in {}/{} again.".format(TOOLS_FOLDER, MACPATCH_FOLDER))
+                else:
+                    lines.append("- After each update run the OCLP-Mod root patches again.")
             if broadcom:
                 lines.append("- Disable AppleBCMWLANCompanion before updating (see Broadcom Wi-Fi firmware).")
             section("macOS updates", "\n".join(lines))
@@ -577,7 +731,11 @@ class PostInstallKit:
             "4. For problems before the macOS kernel starts, a DEBUG build of OpenCore writes a log file to the EFI partition (section 8 of the same page). A debug-build option in this app is the next planned step; until then follow that recipe by hand."
         ]
         if summary.get("needs_oclp"):
-            boot_lines.append("5. If macOS stopped booting after root patching, an EFI backup does not help. Boot recoveryOS from the USB drive, open Terminal, mount the system volume read-write (`mount -uw \"/Volumes/Macintosh HD\"`) and revert the root patches or the system snapshot with the patcher's revert-patches function. If macOS still starts, open the patcher and choose Revert Root Patches, then reboot.")
+            if macpatch_entries(summary):
+                still_starts = "run `bash \"Revert Root Patch.command\"` from {}/{} on the USB drive".format(TOOLS_FOLDER, MACPATCH_FOLDER)
+            else:
+                still_starts = "open the patcher and choose Revert Root Patches"
+            boot_lines.append("5. If macOS stopped booting after root patching, an EFI backup does not help. Boot recoveryOS from the USB drive, open Terminal, mount the system volume read-write (`mount -uw \"/Volumes/Macintosh HD\"`, adjust the name) and revert to the last sealed snapshot with `bless --mount \"/Volumes/Macintosh HD\" --bootefi --last-sealed-snapshot`, the command MacPatch's revert uses (not tested on this build). If macOS still starts, {}, then reboot.".format(still_starts))
         section("If it does not boot", "\n".join(boot_lines))
 
         header = [
@@ -588,7 +746,7 @@ class PostInstallKit:
             "- macOS: {} (Darwin {})".format(summary.get("macos_name") or "Unknown", summary.get("macos_version") or "unknown"),
             "- SMBIOS: {}".format(summary.get("smbios_model") or "Unknown"),
             "- ocvalidate: {}".format(summary.get("ocvalidate") or "not run"),
-            "- Root patches: {}".format("needed (OCLP-Mod)" if summary.get("needs_oclp") else "not needed"),
+            "- Root patches: {}".format(("needed (MacPatch, {}/{})".format(TOOLS_FOLDER, MACPATCH_FOLDER) if macpatch_entries(summary) else "needed (OCLP-Mod)") if summary.get("needs_oclp") else "not needed"),
             "",
             "Work through the sections in order. Steps that do not apply to this build are left out. post-install.command in this folder runs the safe mechanical steps (bash post-install.command in Terminal)."
         ]
@@ -673,11 +831,26 @@ class PostInstallKit:
                 "echo \"\""
             ])
 
-        lines.extend([
-            "echo \"Next: follow {} to move the EFI to the internal disk with MountEFI.\"".format(CHECKLIST_NAME),
-            "echo \"This script does not touch EFI partitions.\""
-        ])
+        lines.append("echo \"Next: follow {} to move the EFI to the internal disk with MountEFI.\"".format(CHECKLIST_NAME))
+        if summary.get("needs_oclp") and macpatch_entries(summary):
+            lines.append("echo \"Root patches are separate: see the Root patches section, then run {}/{}/Root Patch.command.\"".format(TOOLS_FOLDER, MACPATCH_FOLDER))
+        lines.append("echo \"This script does not touch EFI partitions.\"")
         return "\n".join(lines) + "\n"
+
+    def copy_macpatch(self, dest_dir):
+        source = os.path.join(app_paths.bundle_dir(), "postinstall", "macpatch")
+        target = os.path.join(dest_dir, TOOLS_FOLDER, MACPATCH_FOLDER)
+        if not os.path.isfile(os.path.join(source, "__main__.py")):
+            print("\033[1;93mWarning: {} was not found; the kit has no MacPatch.\033[0m".format(source))
+            return None
+        shutil.rmtree(target, ignore_errors=True)
+        shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.log"))
+        for name in MACPATCH_COMMANDS:
+            try:
+                os.chmod(os.path.join(target, name), 0o755)
+            except OSError:
+                pass
+        return target
 
     def copy_docs(self, dest_dir):
         source_dir = os.path.join(app_paths.bundle_dir(), "docs", "reference")
@@ -729,6 +902,12 @@ class PostInstallKit:
         if values is None:
             print("\033[1;93mWarning: could not read {}; {} has no values.\033[0m".format(config_path, SMBIOS_NAME))
         smbios_path = self.write_text(os.path.join(dest_dir, SMBIOS_NAME), self.render_smbios(values))
+        files = [checklist_path, command_path, smbios_path]
+
+        if build_summary.get("needs_oclp") and macpatch_entries(build_summary):
+            print("Writing {} and copying MacPatch...".format(PATCHES_NAME))
+            files.append(self.write_text(os.path.join(dest_dir, PATCHES_NAME), json.dumps(make_patch_manifest(build_summary), indent=4) + "\n"))
+            self.copy_macpatch(dest_dir)
 
         self.copy_docs(dest_dir)
 
@@ -739,6 +918,6 @@ class PostInstallKit:
         return {
             "dest_dir": dest_dir,
             "mode": mode,
-            "files": [checklist_path, command_path, smbios_path],
+            "files": files,
             "tools": status
         }

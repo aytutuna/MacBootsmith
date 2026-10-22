@@ -19,10 +19,19 @@
 
 allowed_when = ("always", "needs_oclp", "broadcom_companion")
 
+# Payload MacPatch (postinstall/macpatch) installs root patches from. Hash and size taken from the
+# GitHub release digest and a download on 2026-10-21; keep in sync with payload.PIN in the tool.
+patcher_support_pkg = {
+    "psp_version": "2.0.3",
+    "url": "https://github.com/dortania/PatcherSupportPkg/releases/download/2.0.3/Universal-Binaries.dmg",
+    "sha256": "cf2a80deafe153ed4a9aa32c63463032e02718f32713e9b3f0a6e09f9a6ffbab",
+    "size": 790749184
+}
+
 tools = [
     {
         "name": "OCLP-Mod",
-        "purpose": "OpenCore Legacy Patcher fork with Tahoe root patches (graphics, Wi-Fi, AppleHDA audio).",
+        "purpose": "OpenCore Legacy Patcher fork with Tahoe root patches (graphics, Wi-Fi, AppleHDA audio); fallback when MacPatch fails. Archived in June 2026.",
         "repo": "laobamac/OCLP-Mod",
         "tag": "3.1.9",
         "branch": None,

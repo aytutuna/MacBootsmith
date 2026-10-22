@@ -130,3 +130,50 @@ Sources: absence checked with a repository-wide search of `_ref/oclp/docs` for "
 ### Status of the fork (checked 2026-10-21)
 
 The fork the kit points to, laobamac/OCLP-Mod, was archived on 2026-06-13. Its README says existing releases keep working but the project's own download servers (SimpleHacAPI) are being shut down, and asks users to disable SimpleHacAPI in the settings. Release 3.1.9 (2026-04-15) is the last one and is what `postinstall_tools.py` pins. Mainline dortania/OpenCore-Legacy-Patcher was last pushed 2026-10-11 and is the fallback; whether its Tahoe root patches behave the same on a hackintosh built by this app is untested. Upstream OpCore-Simplify (2026-10-15) still refers to the fork, so watch what it switches to.
+
+Because the fork is archived, the post-install kit now ships its own root patcher, MacPatch (section 7), and keeps OCLP-Mod 3.1.9 as the fallback.
+
+## 7. MacPatch: the kit's root patcher
+
+Mainline OCLP has the patch sets a hackintosh build needs, including the Tahoe AppleHDA restore (`sys_patch/patchsets/hardware/misc/modern_audio.py`), but its detection is written for real Macs. `ModernAudio.present()` only returns true when `smbios_data` lists the model with `SecureBootModel` None, so an iMac20,1 build is never offered the audio patch, and Wi-Fi detection reads the card through OCLP's own device probe. The build already knows which patches the machine needs, so the kit writes them to `PostInstall/patches.json` and MacPatch (`postinstall/macpatch`, copied to `PostInstall/Tools/MacPatch`) applies exactly those, with OCLP's engine logic and OCLP's payload.
+
+Status: unverified. Nothing in it has run on a real Mac or hackintosh. The unit tests run its logic against canned command output on Windows, Linux and the macOS CI runner, and CI runs a dry run on the runner, where preflight fails by design (SIP is enabled and AMFI is not relaxed). When anything under `postinstall/` changes, and weekly, CI also downloads the pinned payload, mounts it read-only and checks that every source path MacPatch would use exists for eight macOS builds from 12.7.3 to 26.0.1 (`tests/ci/check_payload.py`).
+
+### patches.json
+
+| Key | Meaning |
+| :--- | :--- |
+| `version` | 1 |
+| `created`, `macos_version`, `macos_name`, `smbios_model`, `sip`, `secure_boot_model`, `boot_args` | Copied from `build_summary.json`, for the log and the plan |
+| `root_patches` | List of `{"set": ...}` entries. `modern_audio`; `modern_wireless` and `legacy_wireless` with `device` (PCI ID as in the report, e.g. `14E4-43A0`) and `name`; `graphics` with `codename`, `device`, `name` and `"supported": false`. When a graphics entry exists the kit leaves MacPatch and patches.json out and the checklist sends everything to OCLP-Mod, because the two patchers must not be mixed on one system |
+| `payload` | `psp_version`, `url`, `sha256`, `size` of PatcherSupportPkg's `Universal-Binaries.dmg` (2.0.3: 790749184 bytes, SHA-256 `cf2a80deafe153ed4a9aa32c63463032e02718f32713e9b3f0a6e09f9a6ffbab`) |
+
+Which sets the Windows side writes: `modern_audio` when the target is Darwin 25 or newer and AppleALC was chosen without SimpleHDA; `modern_wireless` for Broadcom cards in OCLP's AirportBrcmNIC, AirPortBrcm4360 and AirPortBrcmNICThirdParty lists (43BA, 43A3, 43A0, 4357, 43B1, 43B2, 4331, 4353) whose OCLP compatibility covers the target, Darwin 23 or newer, unless AppleBCMWLANCompanion was chosen, and for Intel cards when the plain AirportItlwm kext (not the laobamac fork, not itlwm) was chosen on Darwin 24 or newer; `legacy_wireless` for OCLP's AirPortBrcm4331, AppleAirPortBrcm43224 and AirPortAtheros40 lists on Darwin 21 or newer. Atheros IDs our checker marks as OCLP-patchable but OCLP's list lacks (106B-0086, 168C-002B, 168C-002E) get no entry. MacPatch still decides per set whether the running macOS needs it, so the same manifest works after an update or on an older release.
+
+### What was ported from OCLP 3.0.0
+
+- `sys_patch/sys_patch.py`: the sanity check (the mounted `SystemVersion.plist` build must match the running build), the install loop for Overwrite, Merge and Remove on the system volume and Execute, the source-file preflight, the kernel collection rebuild and snapshot order. MacPatch writes `/System/Library/CoreServices/MacPatch.plist` (patch sets, PatcherSupportPkg version, KDK used) where OCLP writes `OpenCore-Legacy-Patcher.plist`.
+- `mount/mount.py`, `mount/snapshot.py`: root volume identifier from `diskutil info -plist /` (snapshot suffix stripped), `mount -o nobrowse -t apfs /dev/<disk> /System/Volumes/Update/mnt1`, `bless --folder <mnt>/System/Library/CoreServices --bootefi --create-snapshot`, revert with `bless --mount <mnt> --bootefi --last-sealed-snapshot`.
+- `utilities/files.py`: overwrite (delete, then `cp -R`) versus merge (`rsync -r -i -a`), removal, `chmod 755` and `chown root:wheel`.
+- `kernelcache/kernel_collection/boot_system.py`: `kmutil create --allow-missing-kdk --volume-root <mnt> --update-all --variant-suffix release` on Ventura and newer, `kmutil install` on Big Sur and Monterey.
+- `utilities/kdk_merge.py`, `support/kdk_handler.py`: installed KDK for the exact build under `/Library/Developer/KDKs` (validated against the pkg receipt or OCLP's kext list), otherwise the KdkSupportPkg manifest (exact build, then the closest same-major build no newer than the host and at most one minor behind), offline fallback to installed KDKs matching the version, download, SHA-256 and size from the manifest (OCLP itself only runs `hdiutil verify`), `installer -pkg`, then `rsync` of the KDK's `System/Library/Extensions` onto the mounted root.
+- `utilities/dmg_mount.py`, `support/validation.py`: `Universal-Binaries.dmg` is downloaded to `/Library/Caches/MacBootsmith` (or taken from the MacPatch folder when a copy with the pinned size and hash is there) and attached with OCLP's arguments (`-noverify -nobrowse -shadow ... -passphrase password`); its folders are the source root for the patch files.
+- Patch sets, data copied verbatim: `modern_audio.py` (AppleHDA from `26.0 Beta 1`, native before Darwin 25 and on Tahoe Beta 1 `25A5279m`, KDK required on Darwin 25+), `modern_wireless.py` (`13.7.2-<xnu>`, the Extended part only up to Sonoma), `legacy_wireless.py` (`11.7.10` or `11.7.10-Sandbox` after the CVE-2024-23227 releases, Extended from Ventura with OCLP's per-release version strings).
+- `patchsets/detect.py` and `detections/amfi_detect.py`: unsupported host (outside Darwin 20 to 25), missing network (only when the KDK or the payload must be downloaded; offline with the payload present it patches Wi-Fi first, as OCLP does), FileVault, SIP bits from `patchsets/hardware/base.py` (0x803 on Ventura and newer) read with `csr_get_active_config`, AMFI level with the AMFIPass 1.2.1+ override, repatching (an existing OCLP patch record, or a MacPatch record with more than the Wi-Fi sets, needs a revert first), and a root volume that is not an APFS snapshot. Revert only needs a supported host and lowered SIP, and does not read patches.json. The build number comes from `/System/Library/CoreServices/SystemVersion.plist` as in OCLP's `os_probe.py`, because `sw_vers` reports the Rapid Security Response build.
+
+### Deliberately left out
+
+- Graphics patch sets, MetallibSupportPkg, the non-Metal and Skylight cleanups: phase two.
+- The auxiliary kernel collection and `/Library/Extensions` handling. None of the three sets installs a kext outside `/System/Library/Extensions`; on Ventura and newer, when no KDK is needed (Wi-Fi only), OCLP rebuilds only the auxiliary collection, so MacPatch rebuilds nothing and just creates the snapshot.
+- RSRRepair, which OCLP installs after a Boot/System KC rebuild to resync the Preboot copy after a Rapid Security Response; it is a binary from OCLP's payloads.
+- KDK `.pkg` backups and their restore, the "KDK already merged" shortcut, the IOHIDFamily signature backup (USB 1.1 only), mkext and prelinked kernels (pre-Big Sur), Apple Silicon `bless` arguments, the launch agents and the privileged helper (MacPatch re-runs itself with `sudo`).
+- Real-Mac checks: SecureBootModel, WhateverGreen, nvda_drv, OCLP-Settings NVRAM flags.
+- Python packages: `requests` and `packaging` are replaced by `curl` (system trust store, progress bar) and tuple comparisons; the tool needs only Python 3.9 from Apple's Command Line Tools.
+
+### Exit codes
+
+0 patched (or dry run passed), 1 error, 2 preflight failed, 3 nothing to do on this macOS.
+
+### Not verified
+
+Everything that touches macOS: the mount, bless, kmutil, rsync and hdiutil calls on a real system volume, whether `csr_get_active_config` reports the OpenCore-set value, the payload folder names inside `Universal-Binaries.dmg` 2.0.3 until the CI payload check has run once, the KDK install and merge on Tahoe, whether AppleHDA from `26.0 Beta 1` loads with AppleALC on a hackintosh, the AirportItlwm plus modern-wireless combination, the `.command` launchers in Finder from a FAT32 drive, and the recoveryOS revert command in the checklist.
